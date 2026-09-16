@@ -21,6 +21,7 @@ import { db, dbConfigured } from "~/server/db";
 export async function searchStations(q: string): Promise<{
   stations: StationItem[];
   dbConfigured: boolean;
+  degraded?: boolean;
 }> {
   const query = q.trim();
   if (query.length < 2) return { stations: [], dbConfigured: dbConfigured() };
@@ -51,10 +52,7 @@ export async function searchStations(q: string): Promise<{
     };
   } catch (e) {
     console.error("stations query failed", e);
-    return { stations: searchSeed(query), dbConfigured: true, degraded: true } as {
-      stations: StationItem[];
-      dbConfigured: boolean;
-    };
+    return { stations: searchSeed(query), dbConfigured: true, degraded: true };
   }
 }
 

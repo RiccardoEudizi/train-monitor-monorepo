@@ -2,6 +2,7 @@ import { createAsync, revalidate } from "@solidjs/router";
 import type { RouteDefinition } from "@solidjs/router";
 import { createSignal, ErrorBoundary, For, Show, Suspense } from "solid-js";
 import {
+  Chip,
   SectionTitle,
   ShimmerList,
   Spinner,
@@ -50,23 +51,17 @@ export default function Ritardi() {
       <div class="mb-4 flex flex-wrap items-center gap-2 text-xs">
         <For each={[0, 5, 10, 15, 30]}>
           {(m) => (
-            <button
-              onClick={() => setMin(m)}
-              class={`rounded border px-2 py-1 tabular-nums ${min() === m ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900" : "border-zinc-300 text-zinc-500 dark:border-zinc-700"}`}
-            >
+            <Chip active={min() === m} onClick={() => setMin(m)} class="tabular-nums">
               +{m}
-            </button>
+            </Chip>
           )}
         </For>
         <span class="mx-1 text-zinc-300 dark:text-zinc-700">|</span>
         <For each={CATS}>
           {(c) => (
-            <button
-              onClick={() => toggleCat(c)}
-              class={`rounded border px-2 py-1 ${cats().includes(c) ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900" : "border-zinc-300 text-zinc-500 dark:border-zinc-700"}`}
-            >
+            <Chip active={cats().includes(c)} onClick={() => toggleCat(c)}>
               {c}
-            </button>
+            </Chip>
           )}
         </For>
         <span class="ml-auto text-zinc-500">

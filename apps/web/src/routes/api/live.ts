@@ -1,4 +1,4 @@
-import { fetchBoard, fetchDelays } from "~/server/data";
+import { fetchBoard, fetchDelays, fetchTrain } from "~/server/data";
 
 const POLL_MS = 12000;
 
@@ -14,7 +14,6 @@ async function snapshot(station?: string, train?: string) {
       };
     }
     if (train) {
-      const { fetchTrain } = await import("~/server/data");
       const detail = await fetchTrain(train);
       return {
         updatedAt: new Date().toISOString(),

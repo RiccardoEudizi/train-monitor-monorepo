@@ -21,10 +21,9 @@ export interface UseLiveOptions<T> {
  */
 export function useLive<T>(opts: UseLiveOptions<T>) {
   const [connected, setConnected] = createSignal(false);
-  const [lastUpdate, setLastUpdate] = createSignal<string | null>(null);
 
   if (typeof window === "undefined") {
-    return { connected, lastUpdate };
+    return { connected };
   }
 
   let es: EventSource | null = null;
@@ -61,7 +60,6 @@ export function useLive<T>(opts: UseLiveOptions<T>) {
     es.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data) as LiveMessage<T>;
-        setLastUpdate(msg.updatedAt);
         opts.onMessage?.(msg);
       } catch {
         /* ignore malformed */
@@ -105,5 +103,5 @@ export function useLive<T>(opts: UseLiveOptions<T>) {
     disconnect();
   });
 
-  return { connected, lastUpdate };
+  return { connected };
 }

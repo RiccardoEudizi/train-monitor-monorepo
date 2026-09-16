@@ -9,6 +9,7 @@ import {
   Suspense,
 } from "solid-js";
 import {
+  LiveDot,
   SectionTitle,
   ShimmerList,
   Spinner,
@@ -105,11 +106,8 @@ export default function Home() {
               </Show>
             </Suspense>
           </ErrorBoundary>
-          <span class="ml-auto flex items-center gap-2 text-xs text-zinc-500">
-            <span
-              class={`inline-block size-2 rounded-full ${live.connected() ? "bg-emerald-500" : "bg-zinc-500"}`}
-            />
-            {live.connected() ? "live" : "reconnecting…"}
+          <span class="ml-auto">
+            <LiveDot connected={live.connected()} />
           </span>
         </div>
         <ErrorBoundary fallback={<></>}>

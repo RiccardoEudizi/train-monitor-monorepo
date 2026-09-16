@@ -2,6 +2,7 @@ import { A, createAsync, revalidate, useParams } from "@solidjs/router";
 import type { RouteDefinition } from "@solidjs/router";
 import { createSignal, ErrorBoundary, For, Show, Suspense } from "solid-js";
 import {
+  Chip,
   DelayBadge,
   SectionTitle,
   Shimmer,
@@ -10,7 +11,6 @@ import {
   TrainStatus,
 } from "~/components/ui";
 import { delayClass, fmtDateEU, fmtTime } from "~/lib/format";
-import { displayStatus } from "~/lib/api-types";
 import { getStatsQuery, getTrainQuery } from "~/lib/queries";
 import { useLive } from "~/lib/sse";
 
@@ -139,12 +139,13 @@ export default function Treno() {
         <div class="mb-3 flex items-center gap-2 text-xs">
           <For each={["24h", "7d", "30d", "all"] as Period[]}>
             {(p) => (
-              <button
+              <Chip
+                active={period() === p}
                 onClick={() => setPeriod(p)}
-                class={`rounded border px-2 py-1 uppercase tracking-widest ${period() === p ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900" : "border-zinc-300 text-zinc-500 dark:border-zinc-700"}`}
+                class="uppercase tracking-widest"
               >
                 {p}
-              </button>
+              </Chip>
             )}
           </For>
           <span class="ml-auto hidden text-zinc-500 sm:inline">

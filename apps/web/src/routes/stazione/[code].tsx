@@ -10,6 +10,7 @@ import {
 } from "solid-js";
 import {
   DelayBadge,
+  LiveDot,
   SectionTitle,
   ShimmerList,
   Sparkline,
@@ -81,12 +82,7 @@ export default function Stazione() {
               aggiornato {board() ? fmtDateTime(board()!.updatedAt) : "…"}
             </Suspense>
           </ErrorBoundary>{" "}
-          <span class="flex items-center gap-1.5">
-            <span
-              class={`inline-block size-2 rounded-full ${live.connected() ? "bg-emerald-500" : "bg-zinc-500"}`}
-            />
-            {live.connected() ? "live" : "reconnecting…"}
-          </span>
+          <LiveDot connected={live.connected()} />
         </p>
       </section>
 

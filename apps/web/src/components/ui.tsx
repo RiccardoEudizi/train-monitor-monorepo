@@ -143,3 +143,32 @@ export function SectionTitle(props: { children: any; right?: any }) {
     </div>
   );
 }
+
+/** SSE connection indicator. SSR-safe: starts disconnected on both sides. */
+export function LiveDot(props: { connected: boolean }) {
+  return (
+    <span class="flex items-center gap-1.5 text-xs text-zinc-500">
+      <span
+        class={`inline-block size-2 rounded-full ${props.connected ? "bg-emerald-500" : "bg-zinc-500"}`}
+      />
+      {props.connected ? "live" : "reconnecting…"}
+    </span>
+  );
+}
+
+/** Small filter toggle button (ranking + detail period selectors). */
+export function Chip(props: {
+  active: boolean;
+  onClick: () => void;
+  children: any;
+  class?: string;
+}) {
+  return (
+    <button
+      onClick={props.onClick}
+      class={`rounded border px-2 py-1 ${props.active ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900" : "border-zinc-300 text-zinc-500 dark:border-zinc-700"} ${props.class ?? ""}`}
+    >
+      {props.children}
+    </button>
+  );
+}
