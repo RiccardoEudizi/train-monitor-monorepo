@@ -1,0 +1,108 @@
+import { createAsync, revalidate } from "@solidjs/router";
+import type { RouteDefinition } from "@solidjs/router";
+import { createSignal, ErrorBoundary, For, Show, Suspense } from "solid-js";
+import {
+  SectionTitle,
+  ShimmerList,
+  Spinner,
+  TrainRow,
+} from "~/components/ui";
+import { getDelaysQuery } from "~/lib/queries";
+import { useLive } from "~/lib/sse";
+
+export const route = {
+  preload: () => getDelaysQuery(5, "", 100).then(
+    () => undefined,
+    () => undefined,
+  ),
+} satisfies RouteDefinition;
+
+const CATS = ["FR", "IC", "REG"];
+
+export default function Ritardi() {
+  const [min, setMin] = createSignal(5);
+  const [cats, setCats] = createSignal<string[]>([]);
+
+  // Reactive args → automatic refetch when filters change.
+  const res = createAsync(() => getDelaysQuery(min(), cats().join(","), 100), {
+    deferStream: true,
+  });
+
+  useLive({
+    url: "/api/live",
+    onMessage: (msg) => {
+      if (msg.heartbeat) return;
+      revalidate(getDelaysQuery.key);
+    },
+  });
+
+  function toggleCat(c: string) {
+    setCats((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
+  }
+
+  return (
+    <main class="mx-auto max-w-5xl px-4 pb-16">
+      <section class="py-8">
+        <p class="text-xs uppercase tracking-[0.25em] text-zinc-500">ranking live</p>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight">Ritardi</h1>
+      </section>
+
+      <div class="mb-4 flex flex-wrap items-center gap-2 text-xs">
+        <For each={[0, 5, 10, 15, 30]}>
+          {(m) => (
+            <button
+              onClick={() => setMin(m)}
+              class={`rounded border px-2 py-1 tabular-nums ${min() === m ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900" : "border-zinc-300 text-zinc-500 dark:border-zinc-700"}`}
+            >
+              +{m}
+            </button>
+          )}
+        </For>
+        <span class="mx-1 text-zinc-300 dark:text-zinc-700">|</span>
+        <For each={CATS}>
+          {(c) => (
+            <button
+              onClick={() => toggleCat(c)}
+              class={`rounded border px-2 py-1 ${cats().includes(c) ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900" : "border-zinc-300 text-zinc-500 dark:border-zinc-700"}`}
+            >
+              {c}
+            </button>
+          )}
+        </For>
+        <span class="ml-auto text-zinc-500">
+          <ErrorBoundary fallback={<span>—</span>}>
+            <Suspense fallback={<Spinner />}>
+              <Show when={res()}>{res()?.items.length ?? 0} treni</Show>
+            </Suspense>
+          </ErrorBoundary>
+        </span>
+      </div>
+
+      <section>
+        <SectionTitle>peggiori per ritardo</SectionTitle>
+        <ErrorBoundary
+          fallback={
+            <p class="rounded border border-red-900 px-3 py-6 text-center text-xs text-red-400">
+              ranking non disponibile
+            </p>
+          }
+        >
+          <Suspense fallback={<ShimmerList rows={12} />}>
+            <Show
+              when={(res()?.items ?? []).length > 0}
+              fallback={
+                <p class="rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-xs text-zinc-500 dark:border-zinc-700">
+                  Nessun treno sopra la soglia. Prova ad abbassare il filtro.
+                </p>
+              }
+            >
+              <div class="flex flex-col gap-2">
+                <For each={res()?.items ?? []}>{(t) => <TrainRow t={t} />}</For>
+              </div>
+            </Show>
+          </Suspense>
+        </ErrorBoundary>
+      </section>
+    </main>
+  );
+}
