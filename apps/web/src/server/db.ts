@@ -15,10 +15,10 @@ if (!process.env.DATABASE_URL) {
   const candidates = [
     // src/server/db.ts -> apps/web/.env (package-level)
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.env"),
-    // apps/web/src/server/db.ts -> monorepo root .env
+    // apps/web/src/server/db.ts -> monorepo root .env (four levels up)
     path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      "../../../.env",
+      "../../../../.env",
     ),
     // launcher CWD (prod `node .output/server/index.mjs` from root, CLIs)
     path.resolve(process.cwd(), ".env"),
