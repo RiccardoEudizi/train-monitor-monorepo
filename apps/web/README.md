@@ -89,7 +89,7 @@ SSE at `/api/live[?station=][?train=]`, 12s poll, diff-push or heartbeat. Client
 pnpm build && pnpm start   # serves .output/server/index.mjs
 ```
 
-Use `db:migrate` (not `push`) in prod. No Dockerfile/CI yet.
+Use `db:migrate` (not `push`) in prod. No CI yet.
 
 ## Repo map
 
