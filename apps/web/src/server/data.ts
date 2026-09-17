@@ -1,5 +1,11 @@
 import { and, desc, eq, gte, ilike, inArray, or, sql } from "drizzle-orm";
-import { infoNews, stations, stops, trainRuns } from "~/db/schema";
+import {
+  dailyStopStats,
+  infoNews,
+  stations,
+  stops,
+  trainRuns,
+} from "~/db/schema";
 import type {
   BoardRes,
   DelaysRes,
@@ -102,6 +108,8 @@ export async function fetchBoard(code: string): Promise<BoardRes & { dbConfigure
     .from(stops)
     .innerJoin(trainRuns, eq(stops.runId, trainRuns.id))
     .where(eq(stops.stationCode, code))
+    // Final order is delay-first in JS below; keep SQL order recency-only
+    // as a pre-filter for the LIMIT window.
     .orderBy(desc(stops.programmataDep))
     .limit(60);
 
@@ -199,8 +207,8 @@ export async function fetchTrain(
     .where(eq(stops.runId, run.id))
     .orderBy(stops.orderIdx);
 
-  // Risolve i nomi delle stazioni (gli stop salvano solo lo stationCode).
-  // Fallback: seed delle major → codice grezzo se proprio manca dal DB.
+  // Resolve station names (stops store only stationCode).
+  // Fallback: major seed → raw code when missing from DB.
   const stopCodes = [...new Set(stopRows.map((s) => s.stationCode))];
   const nameByCode = new Map<string, string>();
   if (stopCodes.length > 0) {
@@ -278,16 +286,21 @@ export async function fetchDelays(
       dbConfigured: false,
     };
   }
-  const conditions = [gte(trainRuns.lastDelay, min)];
-  if (cats.length > 0) {
-    conditions.push(sql`${trainRuns.categoria} IN ${cats}`);
+  const safeMin = Number.isFinite(min) ? min : 0;
+  const safeLimit = Number.isFinite(limit)
+    ? Math.min(Math.max(Math.floor(limit), 1), 200)
+    : 50;
+  const normCats = [...new Set(cats.map((c) => c.trim().toUpperCase()).filter(Boolean))];
+  const conditions = [gte(trainRuns.lastDelay, safeMin)];
+  if (normCats.length > 0) {
+    conditions.push(inArray(trainRuns.categoria, normCats));
   }
   const rows = await database
     .select()
     .from(trainRuns)
     .where(sql.join(conditions, sql` AND `))
     .orderBy(desc(trainRuns.lastDelay))
-    .limit(limit);
+    .limit(safeLimit);
 
   let totalCircolanti = rows.length;
   try {
@@ -393,7 +406,6 @@ export async function fetchStats(
   }
 
   if (scope === "station" && id) {
-    const { dailyStopStats } = await import("~/db/schema");
     const rows = sinceDate
       ? await database
           .select()
@@ -616,7 +628,7 @@ export async function fetchOverview(period: string): Promise<OverviewRes> {
 }
 
 export async function fetchNews(): Promise<
-  NewsRes & { lavori?: unknown; dbConfigured: boolean }
+  NewsRes & { dbConfigured: boolean }
 > {
   const database = db();
   if (!database) {
@@ -629,14 +641,17 @@ export async function fetchNews(): Promise<
   }
   const rows = await database.select().from(infoNews);
   const byKind = new Map(rows.map((r) => [r.kind, r]));
-  const get = (k: string, fb: unknown) => (byKind.get(k)?.payload as unknown) ?? fb;
-  const rawTicker = get("ticker", []);
-  // The poller used to store {html} objects; current shape is string[].
-  const ticker = Array.isArray(rawTicker) ? (rawTicker as string[]) : [];
+  const get = (k: string): unknown => byKind.get(k)?.payload ?? null;
+  const rawTicker = get("ticker");
+  const ticker = Array.isArray(rawTicker)
+    ? rawTicker.filter((s): s is string => typeof s === "string")
+    : [];
+  const rawNews = get("news");
+  const rawLavori = get("lavori");
   return {
     ticker,
-    news: get("news", []),
-    lavori: get("lavori", []),
+    news: Array.isArray(rawNews) ? rawNews : [],
+    lavori: Array.isArray(rawLavori) ? rawLavori : [],
     updatedAt:
       byKind.get("ticker")?.fetchedAt?.toISOString() ?? new Date().toISOString(),
     dbConfigured: true,

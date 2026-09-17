@@ -183,4 +183,4 @@ export const infoNews = pgTable("info_news", {
 export type Station = typeof stations.$inferSelect;
 export type TrainRun = typeof trainRuns.$inferSelect;
 export type Stop = typeof stops.$inferSelect;
-export type StopSnapshot = typeof stopSnapshots.$inferSelect;
+export type DailyStopStat = typeof dailyStopStats.$inferSelect;

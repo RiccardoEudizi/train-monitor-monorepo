@@ -38,11 +38,17 @@ async function snapshot(station?: string, train?: string) {
  * SSE: global board + per-page subscriptions over the same handler.
  * Polls the DB every 12s, pushes only when the payload changes.
  */
-export async function GET(event: any) {
+export async function GET(event: { request: Request }) {
   const url = new URL(event.request.url);
-  const station = (url.searchParams.get("station") ?? "").toUpperCase() || undefined;
-  const train = (url.searchParams.get("train") ?? "").trim() || undefined;
-  const scope = station ? `station:${station}` : train ? `train:${train}` : "global";
+  const rawStation = (url.searchParams.get("station") ?? "").trim().toUpperCase();
+  const rawTrain = (url.searchParams.get("train") ?? "").trim();
+  const station = rawStation.replace(/[^A-Z0-9]/g, "") || undefined;
+  const train = rawTrain.replace(/[^0-9]/g, "") || undefined;
+  const scope = station
+    ? `station:${station}`
+    : train
+      ? `train:${train}`
+      : "global";
 
   const encoder = new TextEncoder();
   let timer: ReturnType<typeof setInterval> | null = null;

@@ -12,7 +12,7 @@ const MAX_AGE = 31536000; // 1 year
 /** Parse a `Cookie` header / `document.cookie` value → dark?, null if absent. */
 export function parseThemeCookie(header: string | null | undefined): boolean | null {
   if (!header) return null;
-  const m = /(?:^|;\s*)tm-theme=(dark|light)/.exec(header);
+  const m = new RegExp(`(?:^|;\\s*)${THEME_COOKIE}=(dark|light)`).exec(header);
   if (!m) return null;
   return m[1] === "dark";
 }

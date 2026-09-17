@@ -12,7 +12,11 @@ import {
   AsciiGauge,
   AsciiHBars,
   AsciiTrend,
+  Card,
   Chip,
+  EmptyState,
+  ErrorBox,
+  Field,
   LiveDot,
   SectionTitle,
   ShimmerList,
@@ -20,7 +24,7 @@ import {
   TrainRow,
 } from "~/components/ui";
 import { AsciiFx, PixelValue } from "~/components/fx";
-import type { StationItem } from "~/lib/api-types";
+import type { StationItem, StatsPeriod } from "~/lib/api-types";
 import { getDelaysQuery, getNewsQuery, getOverviewQuery } from "~/lib/queries";
 import { useLive } from "~/lib/sse";
 
@@ -32,14 +36,6 @@ export const route = {
       getOverviewQuery("30d"),
     ]),
 } satisfies RouteDefinition;
-
-function ErrorBox(props: { message: string }) {
-  return (
-    <p class="rounded border border-red-900 px-3 py-2 text-xs text-red-400">
-      {props.message}
-    </p>
-  );
-}
 
 export default function Home() {
   const [stationQ, setStationQ] = createSignal("");
@@ -76,8 +72,7 @@ export default function Home() {
   const news = createAsync(() => getNewsQuery(), { deferStream: true });
 
   // Panoramica nazionale con filtri come /treno/: 1d / 7d / 30d / total.
-  type HomePeriod = "1d" | "7d" | "30d" | "total";
-  const [ovPeriod, setOvPeriod] = createSignal<HomePeriod>("30d");
+  const [ovPeriod, setOvPeriod] = createSignal<StatsPeriod>("30d");
   const overview = createAsync(() => getOverviewQuery(ovPeriod()), {
     deferStream: true,
   });
@@ -90,7 +85,7 @@ export default function Home() {
   let ovSeen: unknown = undefined;
   let ovSeenInit = false;
   const markOvFetching = () => setOvPending(true);
-  const pickOvPeriod = (p: HomePeriod) => {
+  const pickOvPeriod = (p: StatsPeriod) => {
     if (p === ovPeriod()) return;
     markOvFetching();
     setOvPeriod(p);
@@ -171,7 +166,7 @@ export default function Home() {
       </section>
 
       {/* overview stats — above search */}
-      <section class="mt-2 rounded border border-zinc-200 p-4 dark:border-zinc-800">
+      <Card class="mt-2">
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 class="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
             panoramica ritardi · {ovPeriod()}
@@ -215,24 +210,17 @@ export default function Home() {
         <ErrorBoundary
           fallback={<ErrorBox message="statistiche non disponibili" />}
         >
-          {/* Preload read: triggers the refetch on period change without
-              suspending the visible UI (no skeletons). */}
-          <Suspense fallback={null}>
-            <Show when={!!overview()}>
-              <span class="hidden" aria-hidden="true" />
-            </Show>
-          </Suspense>
           {/* Empty state: only when resolved data says 0 runs. */}
           <Show
             when={
               overview.latest && (overview.latest.national.runs ?? 0) === 0
             }
           >
-            <p class="rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-xs text-zinc-500 dark:border-zinc-700">
+            <EmptyState>
               {overview.latest && !overview.latest.dbConfigured
                 ? "DB non configurato — nessuna statistica."
                 : "Nessuna corsa nel periodo selezionato."}
-            </p>
+            </EmptyState>
           </Show>
           {/* Main grid: reads `.latest` only → never suspends, never shows
               skeletons. Period switches keep old data visible, then
@@ -406,17 +394,17 @@ export default function Home() {
             </p>
           </Show>
         </ErrorBoundary>
-      </section>
+      </Card>
 
       {/* search */}
       <section class="mt-8 grid gap-4 sm:grid-cols-2">
-        <div class="rounded border border-zinc-200 p-4 dark:border-zinc-800">
+        <Card>
           <SectionTitle>cerca stazione</SectionTitle>
-          <input
+          <Field
             value={stationQ()}
-            onInput={(e) => setStationQ(e.currentTarget.value)}
+            onInput={setStationQ}
             placeholder="es. Milano Centrale"
-            class="w-full rounded border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700"
+            label="cerca stazione"
           />
           <div class="mt-2 flex flex-col gap-1">
             <For each={matches()}>
@@ -431,8 +419,8 @@ export default function Home() {
               )}
             </For>
           </div>
-        </div>
-        <div class="rounded border border-zinc-200 p-4 dark:border-zinc-800">
+        </Card>
+        <Card>
           <SectionTitle>cerca treno</SectionTitle>
           <form
             class="flex gap-2"
@@ -442,25 +430,26 @@ export default function Home() {
               if (n) window.location.href = `/treno/${encodeURIComponent(n)}`;
             }}
           >
-            <input
+            <Field
               value={trainN()}
-              onInput={(e) => setTrainN(e.currentTarget.value)}
+              onInput={setTrainN}
               placeholder="es. 9583"
               inputmode="numeric"
-              class="w-full rounded border border-zinc-300 bg-transparent px-3 py-2 text-sm tabular-nums outline-none focus:border-zinc-500 dark:border-zinc-700"
+              label="cerca treno per numero"
             />
             <button
               type="submit"
+              aria-label="vai al treno"
               class="rounded bg-zinc-900 px-4 py-2 text-sm font-bold text-white dark:bg-zinc-100 dark:text-zinc-900"
             >
-              →
+              <span aria-hidden="true">→</span>
             </button>
           </form>
           <p class="mt-3 text-xs leading-relaxed text-zinc-500">
             Inserisci il numero del treno per vedere fermate, ritardo per
             stazione e storico 24h / 30d / all.
           </p>
-        </div>
+        </Card>
       </section>
 
       {/* top delays */}
@@ -479,9 +468,9 @@ export default function Home() {
             <Show
               when={(delays()?.items ?? []).length > 0}
               fallback={
-                <p class="rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-xs text-zinc-500 dark:border-zinc-700">
+                <EmptyState>
                   Nessun ritardo sopra 1 min al momento — o DB non ancora popolato.
-                </p>
+                </EmptyState>
               }
             >
               <div class="flex flex-col gap-2">

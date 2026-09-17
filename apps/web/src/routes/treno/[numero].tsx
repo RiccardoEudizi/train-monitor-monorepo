@@ -2,8 +2,11 @@ import { A, createAsync, revalidate, useParams } from "@solidjs/router";
 import type { RouteDefinition } from "@solidjs/router";
 import { createSignal, ErrorBoundary, For, Show, Suspense } from "solid-js";
 import {
+  Card,
   Chip,
   DelayBadge,
+  EmptyState,
+  ErrorBox,
   SectionTitle,
   Shimmer,
   ShimmerList,
@@ -58,16 +61,27 @@ export default function Treno() {
         </p>
         <ErrorBoundary fallback={<h1 class="mt-2 text-3xl font-bold">Treno {numero()}</h1>}>
           <Suspense fallback={<Shimmer class="mt-2 h-10 w-64" />}>
-            <h1 class="mt-2 text-3xl font-bold tracking-tight tabular-nums">
-              {detail()?.live
-                ? `${detail()!.live!.categoria} ${detail()!.live!.numero}`
-                : `Treno ${numero()}`}
-            </h1>
-            <p class="mt-1 text-sm text-zinc-500">
-              {detail()?.live
-                ? `${detail()!.live!.origine} → ${detail()!.live!.destinazione}`
-                : "nessuna corsa recente trovata"}
-            </p>
+            <Show when={detail()?.live} keyed fallback={
+              <>
+                <h1 class="mt-2 text-3xl font-bold tracking-tight tabular-nums">
+                  {`Treno ${numero()}`}
+                </h1>
+                <p class="mt-1 text-sm text-zinc-500">
+                  nessuna corsa recente trovata
+                </p>
+              </>
+            }>
+              {(live) => (
+                <>
+                  <h1 class="mt-2 text-3xl font-bold tracking-tight tabular-nums">
+                    {`${live.categoria} ${live.numero}`}
+                  </h1>
+                  <p class="mt-1 text-sm text-zinc-500">
+                    {`${live.origine} → ${live.destinazione}`}
+                  </p>
+                </>
+              )}
+            </Show>
             <Show when={(detail()?.candidates ?? []).length > 1}>
               <p class="mt-2 text-xs text-zinc-500">
                 {(detail()?.candidates ?? [])
@@ -82,37 +96,38 @@ export default function Treno() {
       {/* live summary */}
       <ErrorBoundary fallback={<></>}>
         <Suspense>
-          <Show when={detail()?.live}>
+          <Show when={detail()?.live} keyed>
+            {(live) => (
             <section class="mb-8 grid gap-4 sm:grid-cols-3">
-              <div class="rounded border border-zinc-200 p-4 dark:border-zinc-800">
+              <Card>
                 <p class="text-[11px] uppercase tracking-widest text-zinc-500">stato</p>
                 <p class="mt-1 text-xl font-bold tabular-nums">
                   <TrainStatus
-                    temporalStatus={detail()!.live!.temporalStatus ?? "unknown"}
-                    delayStato={detail()!.live!.stato}
+                    temporalStatus={live.temporalStatus ?? "unknown"}
+                    delayStato={live.stato}
                   />
                 </p>
                 <p class="mt-1 text-xs text-zinc-500">
-                  partenza prevista {detail()!.live!.orarioPartenza ? fmtTime(detail()!.live!.orarioPartenza) : "—"}
-                  {detail()!.live!.orarioArrivo ? ` · arrivo ${fmtTime(detail()!.live!.orarioArrivo)}` : ""}
+                  partenza prevista {live.orarioPartenza ? fmtTime(live.orarioPartenza) : "—"}
+                  {live.orarioArrivo ? ` · arrivo ${fmtTime(live.orarioArrivo)}` : ""}
                 </p>
-              </div>
-              <div class="rounded border border-zinc-200 p-4 dark:border-zinc-800">
+              </Card>
+              <Card>
                 <p class="text-[11px] uppercase tracking-widest text-zinc-500">ritardo attuale</p>
                 <p class="mt-1 text-3xl font-bold tabular-nums">
                   <DelayBadge
-                    delay={detail()!.live!.delay}
-                    stato={detail()!.live!.stato}
+                    delay={live.delay}
+                    stato={live.stato}
                   />
                 </p>
                 <p class="mt-1 text-xs text-zinc-500">
-                  ultimo rilevamento {detail()!.live!.lastRilevamentoStazione ?? "—"}
-                  {detail()!.live!.lastRilevamento
-                    ? ` · ${fmtTime(detail()!.live!.lastRilevamento)}`
+                  ultimo rilevamento {live.lastRilevamentoStazione ?? "—"}
+                  {live.lastRilevamento
+                    ? ` · ${fmtTime(live.lastRilevamento)}`
                     : ""}
                 </p>
-              </div>
-              <div class="rounded border border-zinc-200 p-4 dark:border-zinc-800">
+              </Card>
+              <Card>
                 <p class="text-[11px] uppercase tracking-widest text-zinc-500">media finale {period()}</p>
                 <p class="mt-1 text-3xl font-bold tabular-nums">
                   <PixelValue value={`+${stats()?.avgFinal ?? 0}'`}>
@@ -129,8 +144,8 @@ export default function Treno() {
                     +{stats()?.maxFinal ?? 0}'
                   </PixelValue>
                 </p>
-              </div>
-              <div class="rounded border border-zinc-200 p-4 dark:border-zinc-800">
+              </Card>
+              <Card>
                 <p class="text-[11px] uppercase tracking-widest text-zinc-500">recupero medio</p>
                 <p class="mt-1 text-3xl font-bold tabular-nums">
                   <PixelValue value={`${stats()?.avgRecupero ?? 0}'`}>
@@ -147,8 +162,9 @@ export default function Treno() {
                     {stats()?.cancellRate ?? 0}%
                   </PixelValue>
                 </p>
-              </div>
+              </Card>
             </section>
+            )}
           </Show>
         </Suspense>
       </ErrorBoundary>
@@ -200,20 +216,16 @@ export default function Treno() {
           </Suspense>
         </ErrorBoundary>
         <ErrorBoundary
-          fallback={
-            <p class="rounded border border-red-900 px-3 py-6 text-center text-xs text-red-400">
-              dettaglio non disponibile
-            </p>
-          }
+          fallback={<ErrorBox message="dettaglio non disponibile" />}
         >
           <Suspense fallback={<ShimmerList rows={12} />}>
             <Show
               when={(detail()?.stops ?? []).length > 0}
               fallback={
-                <p class="rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-xs text-zinc-500 dark:border-zinc-700">
+                <EmptyState>
                   Nessun dettaglio disponibile — il poller non ha ancora visto
                   questo treno, o la corsa è cancellata (204).
-                </p>
+                </EmptyState>
               }
             >
               <div class="flex flex-col">

@@ -120,24 +120,15 @@ export default function CommandPalette() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        class="hidden items-center gap-2 rounded border border-zinc-300 px-2.5 py-1.5 text-xs text-zinc-500 transition-colors hover:border-zinc-400 hover:text-zinc-700 sm:flex dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:text-zinc-300"
+        class="flex items-center gap-2 rounded border border-zinc-300 px-2 py-1.5 text-xs text-zinc-500 transition-colors hover:border-zinc-400 hover:text-zinc-700 sm:px-2.5 dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:text-zinc-300"
         title="cerca (Ctrl+K)"
+        aria-label="cerca stazione o treno"
       >
         <span aria-hidden="true">⌕</span>
         <span class="hidden lg:inline">cerca stazione, treno…</span>
-        <kbd class="rounded border border-zinc-300 px-1 text-[10px] leading-4 tabular-nums dark:border-zinc-700">
+        <kbd class="hidden rounded border border-zinc-300 px-1 text-[10px] leading-4 tabular-nums sm:inline dark:border-zinc-700">
           ctrl K
         </kbd>
-      </button>
-      {/* Mobile: icon-only trigger */}
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        class="rounded border border-zinc-300 px-2 py-1.5 text-xs text-zinc-500 sm:hidden dark:border-zinc-700"
-        title="cerca (Ctrl+K)"
-        aria-label="cerca"
-      >
-        ⌕
       </button>
 
       <Dialog.Root open={open()} onOpenChange={setOpen}>
@@ -157,11 +148,16 @@ export default function CommandPalette() {
                   onKeyDown={onInputKey}
                   placeholder="cerca stazione o numero treno…"
                   aria-label="cerca stazione o treno"
+                  aria-expanded={open()}
+                  aria-controls="cmd-palette-list"
+                  aria-activedescendant={open() && items().length > 0 ? `cmd-item-${active()}` : undefined}
+                  role="combobox"
+                  aria-autocomplete="list"
                   class="w-full bg-transparent px-4 py-3 text-sm outline-none placeholder:text-zinc-400"
                 />
               </div>
 
-              <div class="max-h-[50vh] overflow-y-auto p-2">
+              <div class="max-h-[50vh] overflow-y-auto p-2" role="listbox" id="cmd-palette-list" aria-label="risultati">
                 <Show when={loading()}>
                   <p class="px-3 py-4 text-xs text-zinc-500">ricerca…</p>
                 </Show>
@@ -180,11 +176,13 @@ export default function CommandPalette() {
                   </Show>
                   <For each={items()}>
                     {(item, i) => (
-                      <button
-                        type="button"
+                      <div
+                        id={`cmd-item-${i()}`}
+                        role="option"
+                        aria-selected={active() === i()}
                         onClick={() => go(item)}
                         onMouseMove={() => setActive(i())}
-                        class={`flex w-full items-center gap-3 rounded px-3 py-2 text-left text-sm ${
+                        class={`flex w-full cursor-pointer items-center gap-3 rounded px-3 py-2 text-left text-sm ${
                           active() === i()
                             ? "bg-zinc-100 dark:bg-zinc-900"
                             : ""
@@ -212,7 +210,7 @@ export default function CommandPalette() {
                             </span>
                           </>
                         )}
-                      </button>
+                      </div>
                     )}
                   </For>
                 </Show>

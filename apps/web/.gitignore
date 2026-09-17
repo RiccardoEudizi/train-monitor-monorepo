@@ -1,10 +1,5 @@
 dist
-.wrangler
 .output
-.vercel
-.netlify
-.vinxi
-app.config.timestamp_*.js
 
 # Environment
 .env
@@ -19,9 +14,6 @@ app.config.timestamp_*.js
 .classpath
 *.launch
 .settings/
-
-# Temp
-gitignore
 
 # System Files
 .DS_Store

@@ -10,7 +10,7 @@ export default createHandler(() => (
       // signal initializes from the same cookie in ~/lib/theme).
       const dark = getInitialDark();
       return (
-        <html lang="en" class={dark ? "dark" : undefined}>
+        <html lang="it" class={dark ? "dark" : undefined}>
           <head>
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1" />

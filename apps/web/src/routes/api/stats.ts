@@ -2,7 +2,7 @@ import { fetchOverview, fetchStats } from "~/server/data";
 
 /** GET /api/stats?scope=train&numero=9583&period=30d — thin adapter over fetchStats.
  *  scope=overview&period=1d|7d|30d|total → panoramica nazionale per la home. */
-export async function GET(event: any) {
+export async function GET(event: { request: Request }) {
   const url = new URL(event.request.url);
   const scope = url.searchParams.get("scope") ?? "global";
   const numero = (url.searchParams.get("numero") ?? "").trim();

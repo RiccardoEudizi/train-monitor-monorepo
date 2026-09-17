@@ -10,7 +10,6 @@ export interface LiveMessage<T = unknown> {
 export interface UseLiveOptions<T> {
   /** Static URL or reactive accessor (reconnects when it changes). */
   url: string | (() => string);
-  enabled?: boolean;
   onMessage?: (msg: LiveMessage<T>) => void;
 }
 
@@ -44,7 +43,7 @@ export function useLive<T>(opts: UseLiveOptions<T>) {
   }
 
   function connect() {
-    if (closed || opts.enabled === false) return;
+    if (closed) return;
     const url = currentUrl();
     if (!url) return;
     try {

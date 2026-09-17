@@ -1,6 +1,6 @@
 import { A } from "@solidjs/router";
-import { createEffect, createSignal, For, onMount, Show } from "solid-js";
-import type { TrainCard } from "~/lib/api-types";
+import { createEffect, createSignal, For, onMount, Show, type JSX } from "solid-js";
+import type { TrainCard, TrainStato, TrainTemporalStatus } from "~/lib/api-types";
 import { delayClass, fmtDelay, fmtTime } from "~/lib/format";
 import { displayStatus } from "~/lib/api-types";
 import { getInitialDark, setThemeCookie } from "~/lib/theme";
@@ -18,9 +18,11 @@ export function Spinner(props: { label?: string; slim?: boolean }) {
   });
   return (
     <span
+      role="status"
       class={`inline-flex items-center text-zinc-500 ${props.slim ? "gap-0 text-[11px]" : "gap-2"}`}
     >
       <span
+        aria-hidden="true"
         class={`inline-block text-center ${props.slim ? "w-3" : "w-4"}`}
       >
         {BRAILLE[i()]}
@@ -34,7 +36,7 @@ export function Spinner(props: { label?: string; slim?: boolean }) {
 
 /** Shimmer skeleton block. */
 export function Shimmer(props: { class?: string }) {
-  return <div class={`shimmer rounded ${props.class ?? "h-12 w-full"}`} />;
+  return <div aria-hidden="true" class={`shimmer rounded ${props.class ?? "h-12 w-full"}`} />;
 }
 
 export function ShimmerList(props: { rows?: number }) {
@@ -49,7 +51,7 @@ export function ShimmerList(props: { rows?: number }) {
 
 /** Delay badge with palette color. Number dissolves via `PixelValue`
  * (in-place updates) and pixelates in on insertion (after skeletons). */
-export function DelayBadge(props: { delay: number; stato?: string }) {
+export function DelayBadge(props: { delay: number; stato?: TrainStato }) {
   const label = () =>
     props.stato === "cancelled"
       ? "CANC"
@@ -64,8 +66,8 @@ export function DelayBadge(props: { delay: number; stato?: string }) {
 }
 
 /** Temporal status badge for train (waiting/traveling/ended). */
-export function TrainStatus(props: { temporalStatus: string; delayStato: string }) {
-  const { label, class: cls } = displayStatus(props.temporalStatus as any, props.delayStato as any);
+export function TrainStatus(props: { temporalStatus: TrainTemporalStatus; delayStato: TrainStato }) {
+  const { label, class: cls } = displayStatus(props.temporalStatus, props.delayStato);
   return <span class={`text-xs font-medium ${cls}`}>{label}</span>;
 }
 
@@ -88,6 +90,8 @@ export function ThemeToggle() {
       onClick={() => setDark((d) => !d)}
       class="rounded border border-zinc-300 px-2 py-1 text-xs uppercase tracking-widest text-zinc-500 hover:text-zinc-900 dark:border-zinc-800 dark:hover:text-zinc-100"
       title="toggle theme"
+      aria-label="toggle theme"
+      aria-pressed={dark()}
     >
       {dark() ? "light" : "dark"}
     </button>
@@ -144,7 +148,7 @@ export function TrainRow(props: { t: TrainCard }) {
  * client computes another ("Unable to find DOM nodes for hydration key"
  * at `A`). An empty trailing div keeps `justify-between` alignment stable.
  */
-export function SectionTitle(props: { children: any; right?: any }) {
+export function SectionTitle(props: { children: JSX.Element; right?: JSX.Element }) {
   return (
     <div class="mb-3 flex items-baseline justify-between">
       <h2 class="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
@@ -158,8 +162,9 @@ export function SectionTitle(props: { children: any; right?: any }) {
 /** SSE connection indicator. SSR-safe: starts disconnected on both sides. */
 export function LiveDot(props: { connected: boolean }) {
   return (
-    <span class="flex items-center gap-1.5 text-xs text-zinc-500">
+    <span class="flex items-center gap-1.5 text-xs text-zinc-500" aria-live="polite">
       <span
+        aria-hidden="true"
         class={`inline-block size-2 rounded-full ${props.connected ? "bg-emerald-500" : "bg-zinc-500"}`}
       />
       {props.connected ? "live" : "reconnecting…"}
@@ -171,16 +176,67 @@ export function LiveDot(props: { connected: boolean }) {
 export function Chip(props: {
   active: boolean;
   onClick: () => void;
-  children: any;
+  children: JSX.Element;
   class?: string;
 }) {
   return (
     <button
       onClick={props.onClick}
+      aria-pressed={props.active}
       class={`rounded border px-2 py-1 ${props.active ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900" : "border-zinc-300 text-zinc-500 dark:border-zinc-700"} ${props.class ?? ""}`}
     >
       {props.children}
     </button>
+  );
+}
+
+/** Card shell shared by dashboard, ranking and boards. */
+export function Card(props: { children: JSX.Element; class?: string }) {
+  return (
+    <div class={`rounded border border-zinc-200 p-4 dark:border-zinc-800 ${props.class ?? ""}`}>
+      {props.children}
+    </div>
+  );
+}
+
+/** Dashed empty state shared by lists and boards. */
+export function EmptyState(props: { children: JSX.Element }) {
+  return (
+    <p class="rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-xs text-zinc-500 dark:border-zinc-700">
+      {props.children}
+    </p>
+  );
+}
+
+/** Error box shared by all pages. */
+export function ErrorBox(props: { message: string }) {
+  return (
+    <p class="rounded border border-red-900 px-3 py-2 text-xs text-red-400">
+      {props.message}
+    </p>
+  );
+}
+
+/** Search input shared by dashboard + station page. */
+export function Field(props: {
+  value: string;
+  onInput: (v: string) => void;
+  placeholder?: string;
+  inputmode?: "numeric" | "text" | "search";
+  type?: string;
+  label: string;
+  class?: string;
+}) {
+  return (
+    <input
+      value={props.value}
+      onInput={(e) => props.onInput(e.currentTarget.value)}
+      placeholder={props.placeholder}
+      inputmode={props.inputmode}
+      type={props.type ?? "text"}
+      aria-label={props.label}
+      class={`w-full rounded border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 ${props.inputmode === "numeric" ? "tabular-nums " : ""}${props.class ?? ""}`}
+    />
   );
 }
 

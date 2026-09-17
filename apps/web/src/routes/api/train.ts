@@ -1,7 +1,7 @@
 import { fetchTrain } from "~/server/data";
 
 /** GET /api/train?n=9583[&origine=..&date=..] — thin adapter over fetchTrain. */
-export async function GET(event: any) {
+export async function GET(event: { request: Request }) {
   const url = new URL(event.request.url);
   const n = (url.searchParams.get("n") ?? "").trim();
   const origine = (url.searchParams.get("origine") ?? "").trim().toUpperCase();

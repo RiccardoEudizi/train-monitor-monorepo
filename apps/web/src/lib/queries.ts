@@ -11,7 +11,9 @@ import { query } from "@solidjs/router";
 export const getDelaysQuery = query(async (min: number, cat: string, limit: number) => {
   "use server";
   const { fetchDelays } = await import("~/server/data");
-  return fetchDelays(min, cat ? cat.split(",") : [], limit);
+  const safeMin = Number.isFinite(min) ? min : 0;
+  const safeLimit = Number.isFinite(limit) ? limit : 50;
+  return fetchDelays(safeMin, cat ? cat.split(",") : [], safeLimit);
 }, "delays");
 
 export const getNewsQuery = query(async () => {
@@ -23,13 +25,13 @@ export const getNewsQuery = query(async () => {
 export const getBoardQuery = query(async (station: string) => {
   "use server";
   const { fetchBoard } = await import("~/server/data");
-  return fetchBoard(station.toUpperCase());
+  return fetchBoard(station.trim().toUpperCase());
 }, "board");
 
-export const getTrainQuery = query(async (numero: string) => {
+export const getTrainQuery = query(async (numero: string, origine?: string, date?: string) => {
   "use server";
   const { fetchTrain } = await import("~/server/data");
-  return fetchTrain(numero.trim());
+  return fetchTrain(numero.trim(), origine?.trim().toUpperCase() || undefined, date?.trim() || undefined);
 }, "train");
 
 export const getStatsQuery = query(async (scope: string, id: string, period: string) => {

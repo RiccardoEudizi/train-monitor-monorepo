@@ -87,8 +87,11 @@ export const MAJOR_STATIONS: StationItem[] = [
 export function searchSeed(q: string, limit = 8): StationItem[] {
   const norm = q.trim().toLowerCase();
   if (norm.length < 2) return [];
-  return MAJOR_STATIONS.filter((s) =>
-    s.name.toLowerCase().includes(norm),
+  return MAJOR_STATIONS.filter(
+    (s) =>
+      s.name.toLowerCase().includes(norm) ||
+      (s.city ?? "").toLowerCase().includes(norm) ||
+      s.code.toLowerCase().includes(norm),
   ).slice(0, limit);
 }
 

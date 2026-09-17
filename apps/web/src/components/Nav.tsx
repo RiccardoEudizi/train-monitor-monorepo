@@ -10,7 +10,7 @@ export default function Nav() {
           train-monitor<span class="text-zinc-500">_v2</span>
         </A>
         <nav class="flex items-center gap-3 text-xs uppercase tracking-widest text-zinc-500">
-          <A href="/ritardi" activeClass="text-zinc-900 dark:text-zinc-100">
+          <A href="/ritardi" end activeClass="text-zinc-900 dark:text-zinc-100">
             ritardi
           </A>
           <span class="text-zinc-300 dark:text-zinc-700">/</span>

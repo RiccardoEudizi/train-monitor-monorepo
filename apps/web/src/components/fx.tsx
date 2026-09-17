@@ -1,27 +1,19 @@
 import { createSignal, createEffect, onMount, Show, type JSX } from "solid-js";
 
 /**
- * FX layer: CSS-first transitions with a WebGPU-ready interface.
+ * FX layer: CSS-first transitions.
  *
- * - Today: `PixelValue` (pixelated switch) and `AsciiFx` (blur add/remove)
+ * - `PixelValue` (pixelated switch) and `AsciiFx` (blur add/remove)
  *   run on CSS keyframes. SSR-safe: first paint has no animation classes;
  *   transitions only fire client-side after mount + value change.
- * - Tomorrow: swap the CSS keyframes for a WGSL dissolve without changing
- *   call sites — see `pixel-dissolve.wgsl` + `getWebGPUPixelRenderer()`.
  */
 
-/** Client capability probe. `backend` is `"css"` until the WGSL path lands. */
+/** Client capability probe. */
 export function useFxSupport() {
   const [mounted, setMounted] = createSignal(false);
-  const [webgpu, setWebgpu] = createSignal(false);
   const [reducedMotion, setReducedMotion] = createSignal(false);
   onMount(() => {
     setMounted(true);
-    try {
-      setWebgpu(typeof navigator !== "undefined" && "gpu" in navigator);
-    } catch {
-      setWebgpu(false);
-    }
     try {
       setReducedMotion(
         window.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -32,23 +24,8 @@ export function useFxSupport() {
   });
   return {
     mounted,
-    webgpu,
-    reducedMotion,
-    /** Stable interface for the future WGSL backend. */
-    backend: (): "css" | "webgpu-ready" => (webgpu() ? "webgpu-ready" : "css"),
     animate: () => mounted() && !reducedMotion(),
   };
-}
-
-/**
- * Future WebGPU entry point (not wired yet).
- * Planned signature: rasterize old/new text to textures, run
- * `pixel-dissolve.wgsl` (pixelate + threshold noise dissolve), blit to canvas.
- * Returns `null` so callers fall back to CSS — keeps the seam without
- * shipping half-broken GPU code.
- */
-export async function getWebGPUPixelRenderer(): Promise<null> {
-  return null;
 }
 
 /** Pixelated switch for numbers / short titles. */

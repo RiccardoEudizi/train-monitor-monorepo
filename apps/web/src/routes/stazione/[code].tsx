@@ -9,7 +9,11 @@ import {
   Suspense,
 } from "solid-js";
 import {
+  Card,
   DelayBadge,
+  EmptyState,
+  ErrorBox,
+  Field,
   LiveDot,
   SectionTitle,
   ShimmerList,
@@ -80,7 +84,7 @@ export default function Stazione() {
         <p class="mt-1 flex items-center gap-2 text-xs text-zinc-500">
           <ErrorBoundary fallback={<></>}>
             <Suspense fallback={<>aggiornato …</>}>
-              aggiornato {board() ? fmtDateTime(board()!.updatedAt) : "…"}
+              aggiornato {board()?.updatedAt ? fmtDateTime(board()?.updatedAt ?? null) : "…"}
             </Suspense>
           </ErrorBoundary>{" "}
           <LiveDot connected={live.connected()} />
@@ -90,7 +94,7 @@ export default function Stazione() {
       <ErrorBoundary fallback={<></>}>
         <Suspense>
           <Show when={stats() && (stats()?.runs ?? 0) > 0}>
-            <section class="mb-8 rounded border border-zinc-200 p-4 dark:border-zinc-800">
+            <Card class="mb-8">
               <SectionTitle>storico stazione · 30d</SectionTitle>
               <div class="flex items-center gap-6">
                 <div>
@@ -120,7 +124,7 @@ export default function Stazione() {
                   </PixelValue>
                 </p>
               </div>
-            </section>
+            </Card>
           </Show>
         </Suspense>
       </ErrorBoundary>
@@ -149,50 +153,44 @@ export default function Stazione() {
           </Suspense>
         </ErrorBoundary>
         <div class="mb-3">
-          <input
+          <Field
             value={filter()}
-            onInput={(e) => setFilter(e.currentTarget.value)}
+            onInput={setFilter}
             placeholder="cerca per numero o destinazione… es. 9583 o Roma"
-            class="w-full rounded border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700"
+            label="filtra treni in tabellone"
           />
         </div>
-        <ErrorBoundary
-          fallback={
-            <p class="rounded border border-red-900 px-3 py-6 text-center text-xs text-red-400">
-              tabellone non disponibile
-            </p>
-          }
-        >
+        <ErrorBoundary fallback={<ErrorBox message="tabellone non disponibile" />}>
           <Suspense fallback={<ShimmerList rows={10} />}>
             <Show
               when={(board()?.trains ?? []).length > 0}
               fallback={
-                <p class="mt-2 rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-xs text-zinc-500 dark:border-zinc-700">
+                <EmptyState>
                   {board()?.dbConfigured
                     ? "Nessun treno rilevato in questa finestra."
                     : "DB non configurato — nessun dato live."}
-                </p>
+                </EmptyState>
               }
             >
               <Show
                 when={filteredTrains().length > 0}
                 fallback={
-                  <p class="mt-2 rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-xs text-zinc-500 dark:border-zinc-700">
+                  <EmptyState>
                     Nessun treno corrisponde a “{filter().trim()}”.
-                  </p>
+                  </EmptyState>
                 }
               >
               <div class="overflow-x-auto">
                 <table class="w-full text-sm">
                   <thead>
                     <tr class="text-left text-[11px] uppercase tracking-widest text-zinc-500">
-                      <th class="py-2 pr-3">treno</th>
-                      <th class="py-2 pr-3">destinazione</th>
-                      <th class="py-2 pr-3 tabular-nums">prog</th>
-                      <th class="py-2 pr-3 tabular-nums">prev</th>
-                      <th class="py-2 pr-3 text-center">bin</th>
-                      <th class="py-2 pr-3">stato</th>
-                      <th class="py-2 text-right">ritardo</th>
+                      <th scope="col" class="py-2 pr-3">treno</th>
+                      <th scope="col" class="py-2 pr-3">destinazione</th>
+                      <th scope="col" class="py-2 pr-3 tabular-nums">prog</th>
+                      <th scope="col" class="py-2 pr-3 tabular-nums">prev</th>
+                      <th scope="col" class="py-2 pr-3 text-center">bin</th>
+                      <th scope="col" class="py-2 pr-3">stato</th>
+                      <th scope="col" class="py-2 text-right">ritardo</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -204,7 +202,7 @@ export default function Stazione() {
                               {t.categoria} {t.numero}
                             </A>
                           </td>
-                          <td class="max-w-45 truncate py-2 pr-3 text-xs text-zinc-500">
+                          <td class="max-w-44 truncate py-2 pr-3 text-xs text-zinc-500">
                             {t.destinazione || t.origine}
                           </td>
                           <td class="py-2 pr-3 tabular-nums">{fmtTime(t.scheduled)}</td>

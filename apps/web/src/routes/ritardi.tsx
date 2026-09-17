@@ -3,6 +3,8 @@ import type { RouteDefinition } from "@solidjs/router";
 import { createSignal, ErrorBoundary, For, Show, Suspense } from "solid-js";
 import {
   Chip,
+  EmptyState,
+  ErrorBox,
   SectionTitle,
   ShimmerList,
   Spinner,
@@ -81,20 +83,14 @@ export default function Ritardi() {
 
       <section>
         <SectionTitle>peggiori per ritardo</SectionTitle>
-        <ErrorBoundary
-          fallback={
-            <p class="rounded border border-red-900 px-3 py-6 text-center text-xs text-red-400">
-              ranking non disponibile
-            </p>
-          }
-        >
+        <ErrorBoundary fallback={<ErrorBox message="ranking non disponibile" />}>
           <Suspense fallback={<ShimmerList rows={12} />}>
             <Show
               when={(res()?.items ?? []).length > 0}
               fallback={
-                <p class="rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-xs text-zinc-500 dark:border-zinc-700">
+                <EmptyState>
                   Nessun treno sopra la soglia. Prova ad abbassare il filtro.
-                </p>
+                </EmptyState>
               }
             >
               <div class="flex flex-col gap-2">

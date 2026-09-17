@@ -16,19 +16,6 @@ export function fmtTime(iso: string | null): string {
   }
 }
 
-export function fmtDate(iso: string | null): string {
-  if (!iso) return "";
-  try {
-    return new Intl.DateTimeFormat("it-IT", {
-      day: "2-digit",
-      month: "short",
-      timeZone: tz,
-    }).format(new Date(iso));
-  } catch {
-    return "";
-  }
-}
-
 /**
  * European short date for ViaggiaTreno `YYYY-MM-DD` date-only strings.
  * Parsed manually (no Date) so no timezone can shift the day.

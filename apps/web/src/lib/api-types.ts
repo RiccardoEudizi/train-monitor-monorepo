@@ -136,17 +136,26 @@ export interface DelaysRes {
 
 export interface NewsRes {
   ticker: string[];
-  news?: unknown;
+  news?: unknown[];
+  lavori?: unknown[];
   updatedAt: string;
   dbConfigured: boolean;
 }
 
 export interface BoardRes {
-  station: { code: string; name: string; city: string | null };
+  station: {
+    code: string;
+    name: string;
+    city: string | null;
+    region: number | null;
+    major: boolean;
+  };
   updatedAt: string;
   trains: TrainCard[];
   dbConfigured: boolean;
 }
+
+export type StatsPeriod = "1d" | "7d" | "30d" | "total";
 
 /** Compute temporal status from current time vs scheduled departure/arrival. */
 export function temporalStatus(
