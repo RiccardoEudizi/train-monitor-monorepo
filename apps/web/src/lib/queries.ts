@@ -37,3 +37,9 @@ export const getStatsQuery = query(async (scope: string, id: string, period: str
   const { fetchStats } = await import("~/server/data");
   return fetchStats(scope, id, period);
 }, "stats");
+
+export const getOverviewQuery = query(async (period: string) => {
+  "use server";
+  const { fetchOverview } = await import("~/server/data");
+  return fetchOverview(period);
+}, "overview");

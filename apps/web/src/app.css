@@ -59,3 +59,189 @@ body {
   scrollbar-width: thin;
   scrollbar-color: rgb(161 161 170 / 0.4) transparent;
 }
+
+/* ---- Panoramica FX (CSS-first, WebGPU-ready) ---- */
+.fx-pixel-wrap {
+  position: relative;
+  display: inline-block;
+  image-rendering: pixelated;
+  /* Entrance: plays on DOM insertion (e.g. reappearing after a skeleton),
+     while in-place value changes use the old/new layer dissolve below.
+     Hydrated SSR nodes are not re-inserted, so no flash on first paint. */
+  animation: fx-pixel-in 260ms steps(7) both;
+}
+
+.fx-pixel-idle {
+  display: inline-block;
+}
+
+.fx-pixel-old,
+.fx-pixel-new {
+  display: inline-block;
+  will-change: clip-path, opacity, filter;
+}
+
+.fx-pixel-old {
+  position: absolute;
+  inset: 0;
+  white-space: nowrap;
+  animation: fx-pixel-out 260ms steps(7) both;
+}
+
+.fx-pixel-new {
+  position: relative;
+  animation: fx-pixel-in 260ms steps(7) both;
+}
+
+/* Blocky dissolve out: chunked clip wipe + fade. */
+@keyframes fx-pixel-out {
+  0% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+    filter: blur(0);
+  }
+  40% {
+    opacity: 1;
+    clip-path: polygon(
+      0 0, 30% 0, 30% 35%, 55% 35%, 55% 0, 100% 0,
+      100% 100%, 70% 100%, 70% 65%, 40% 65%, 40% 100%, 0 100%
+    );
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    clip-path: polygon(
+      0 0, 15% 0, 15% 20%, 45% 20%, 45% 0, 100% 0,
+      100% 100%, 85% 100%, 85% 80%, 55% 80%, 55% 100%, 0 100%
+    );
+    filter: blur(2px);
+  }
+}
+
+/* Blocky reveal in: chunked clip wipe from sliced to full. */
+@keyframes fx-pixel-in {
+  0% {
+    opacity: 0;
+    clip-path: polygon(
+      0 0, 12% 0, 12% 25%, 38% 25%, 38% 0, 62% 0,
+      62% 30%, 88% 30%, 88% 0, 100% 0, 100% 100%, 0 100%
+    );
+    filter: blur(3px);
+    transform: translateY(3px);
+  }
+  60% {
+    opacity: 1;
+    clip-path: polygon(
+      0 0, 100% 0, 100% 35%, 75% 35%, 75% 60%, 100% 60%,
+      100% 100%, 0 100%, 0 60%, 25% 60%, 25% 35%, 0 35%
+    );
+    filter: blur(0);
+    transform: none;
+  }
+  100% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+    filter: blur(0);
+    transform: none;
+  }
+}
+
+/* ASCII charts: blur + fade add/remove. Base animation covers insertion
+   (e.g. after skeletons); `.fx-ascii-enter` re-fires it on data change. */
+.fx-ascii {
+  will-change: filter, opacity;
+  animation: fx-ascii-in 280ms ease-out both;
+}
+
+.fx-ascii-enter {
+  animation: fx-ascii-in 280ms ease-out both;
+}
+
+@keyframes fx-ascii-in {
+  0% {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translateY(2px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-pixel-wrap,
+  .fx-pixel-old,
+  .fx-pixel-new,
+  .fx-ascii,
+  .fx-ascii-enter {
+    animation: none;
+  }
+}
+
+/* Command palette open/close (Kobalte Dialog data-expanded / data-closed). */
+@keyframes palette-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes palette-overlay-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes palette-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes palette-content-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+.palette-overlay[data-expanded] {
+  animation: palette-overlay-in 150ms ease-out;
+}
+
+.palette-overlay[data-closed] {
+  animation: palette-overlay-out 120ms ease-in;
+}
+
+.palette-content[data-expanded] {
+  animation: palette-content-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top center;
+}
+
+.palette-content[data-closed] {
+  animation: palette-content-out 120ms ease-in;
+  transform-origin: top center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .palette-overlay,
+  .palette-content {
+    animation: none;
+  }
+}

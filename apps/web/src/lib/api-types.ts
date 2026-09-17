@@ -75,12 +75,40 @@ export interface PeriodStats {
   avgMaxEnroute: number;
   avgRecupero: number;
   cancellRate: number;
+  /** Corse con ritardo finale oltre la soglia (home: > 0'). */
+  delayedCount: number;
+  /** % corse in ritardo sul totale (0-100, 1 decimale). */
+  delayedRate: number;
+  /** Somma dei ritardi finali, in minuti. */
+  totalDelay: number;
   series: Array<{
     date: string;
     avgFinal: number;
     maxFinal: number;
     runs: number;
   }>;
+}
+
+/** Aggregato regionale: ogni corsa conta una volta sola, attribuita alla
+ * regione del suo ultimo rilevamento; il criterio di ranking è la somma
+ * cumulata dei ritardi nel periodo. */
+export interface RegionStat {
+  regionId: number | null;
+  name: string;
+  runs: number;
+  delayedCount: number;
+  totalDelay: number;
+  avgDelay: number;
+  maxDelay: number;
+}
+
+export interface OverviewRes {
+  period: string;
+  dbConfigured: boolean;
+  national: PeriodStats;
+  worstRegion: RegionStat | null;
+  /** Top regioni per ritardo cumulato (max 6, per barre ASCII). */
+  regions: RegionStat[];
 }
 
 export interface StationItem {

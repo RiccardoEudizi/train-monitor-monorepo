@@ -4,19 +4,27 @@ import type { TrainCard } from "~/lib/api-types";
 import { delayClass, fmtDelay, fmtTime } from "~/lib/format";
 import { displayStatus } from "~/lib/api-types";
 import { getInitialDark, setThemeCookie } from "~/lib/theme";
+import { AsciiFx, PixelValue } from "./fx";
 
 const BRAILLE = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-/** Unicode braille spinner. */
-export function Spinner(props: { label?: string }) {
+/** Unicode braille spinner. `slim` renders a compact single-glyph version
+ * for tight spots (e.g. filter rows). */
+export function Spinner(props: { label?: string; slim?: boolean }) {
   const [i, setI] = createSignal(0);
   onMount(() => {
     const t = setInterval(() => setI((v) => (v + 1) % BRAILLE.length), 80);
     return () => clearInterval(t);
   });
   return (
-    <span class="inline-flex items-center gap-2 text-zinc-500">
-      <span class="inline-block w-4 text-center">{BRAILLE[i()]}</span>
+    <span
+      class={`inline-flex items-center text-zinc-500 ${props.slim ? "gap-0 text-[11px]" : "gap-2"}`}
+    >
+      <span
+        class={`inline-block text-center ${props.slim ? "w-3" : "w-4"}`}
+      >
+        {BRAILLE[i()]}
+      </span>
       <Show when={props.label}>
         <span class="text-xs uppercase tracking-widest">{props.label}</span>
       </Show>
@@ -39,15 +47,18 @@ export function ShimmerList(props: { rows?: number }) {
   );
 }
 
-/** Delay badge with palette color. */
+/** Delay badge with palette color. Number dissolves via `PixelValue`
+ * (in-place updates) and pixelates in on insertion (after skeletons). */
 export function DelayBadge(props: { delay: number; stato?: string }) {
+  const label = () =>
+    props.stato === "cancelled"
+      ? "CANC"
+      : props.stato === "partial"
+        ? `PARZ ${fmtDelay(props.delay)}`
+        : fmtDelay(props.delay);
   return (
-    <span class={`font-bold tabular-nums ${delayClass(props.delay)}`}>
-      {props.stato === "cancelled"
-        ? "CANC"
-        : props.stato === "partial"
-          ? `PARZ ${fmtDelay(props.delay)}`
-          : fmtDelay(props.delay)}
+    <span class={`inline-block font-bold tabular-nums ${delayClass(props.delay)}`}>
+      <PixelValue value={label()}>{label()}</PixelValue>
     </span>
   );
 }
@@ -170,5 +181,121 @@ export function Chip(props: {
     >
       {props.children}
     </button>
+  );
+}
+
+/** Vertical ASCII bar chart (pure, SSR-safe) for daily delay series.
+ * One column per day, `█` blocks scaled to the max. */
+export function AsciiTrend(props: {
+  values: number[];
+  height?: number;
+  label?: string;
+}) {
+  const h = () => props.height ?? 7;
+  const vals = () => props.values.slice(-31);
+  const max = () => Math.max(0, ...vals());
+  const rows = () => {
+    const v = vals();
+    const m = max();
+    const out: string[] = [];
+    for (let r = h(); r >= 1; r--) {
+      out.push(
+        v
+          .map((x) => (m <= 0 ? " " : x / m >= r / h() ? "█" : " "))
+          .join(""),
+      );
+    }
+    return out;
+  };
+  return (
+    <Show
+      when={vals().length > 0 && max() > 0}
+      fallback={
+        <p class="text-[11px] text-zinc-500">
+          — nessun ritardo nel periodo
+        </p>
+      }
+    >
+      <pre
+        role="img"
+        aria-label={props.label ?? `trend ritardi, max +${max()}`}
+        class="overflow-x-auto text-[11px] leading-[1.3] tracking-[0.1em] text-zinc-600 tabular-nums dark:text-zinc-400"
+      >
+        {rows().join("\n")}
+      </pre>
+    </Show>
+  );
+}
+
+/** Horizontal ASCII bars (pure, SSR-safe), e.g. top regioni per cumulato. */
+export function AsciiHBars(props: {
+  rows: Array<{ label: string; value: number; suffix?: string }>;
+  width?: number;
+}) {
+  const w = () => props.width ?? 14;
+  const max = () => Math.max(1, ...props.rows.map((r) => r.value));
+  return (
+    <Show
+      when={props.rows.length > 0}
+      fallback={
+        <p class="text-[11px] text-zinc-500">— nessun dato nel periodo</p>
+      }
+    >
+      <pre
+        role="img"
+        aria-label="barre orizzontali"
+        class="overflow-x-auto text-[11px] leading-[1.6] tabular-nums"
+      >
+        <For each={props.rows}>
+          {(r, i) => {
+            const filled = Math.round((r.value / max()) * w());
+            const val = ` ${r.value}${r.suffix ?? ""}`;
+            return (
+              <AsciiFx
+                watch={`${r.label}:${r.value}`}
+                delayMs={Math.min(i() * 45, 315)}
+              >
+                <div>
+                  <span class="text-zinc-500">
+                    {(r.label.length > 14
+                      ? r.label.slice(0, 13) + "·"
+                      : r.label.padEnd(14, " ")) + " "}
+                  </span>
+                  <span class="text-amber-500">
+                    {"█".repeat(filled)}
+                  </span>
+                  <span class="text-zinc-300 dark:text-zinc-700">
+                    {"░".repeat(Math.max(0, w() - filled))}
+                  </span>
+                  <span class="text-zinc-600 dark:text-zinc-400">
+                    <PixelValue value={val}>{val}</PixelValue>
+                  </span>
+                </div>
+              </AsciiFx>
+            );
+          }}
+        </For>
+      </pre>
+    </Show>
+  );
+}
+
+/** ASCII gauge bar for a 0-100 percentage (pure, SSR-safe). */
+export function AsciiGauge(props: { pct: number; width?: number }) {
+  const w = () => props.width ?? 20;
+  const pct = () => Math.max(0, Math.min(100, props.pct));
+  const filled = () => Math.round((pct() / 100) * w());
+  return (
+    <pre
+      role="img"
+      aria-label={`${pct()} percento`}
+      class="overflow-x-auto text-[11px] leading-[1.3] tabular-nums"
+    >
+      <span class="text-emerald-500">{"█".repeat(filled())}</span>
+      <span class="text-zinc-300 dark:text-zinc-700">
+        {"░".repeat(Math.max(0, w() - filled()))}
+      </span>
+      <span class="text-zinc-600 dark:text-zinc-400">{` ${pct()}%`}</span>
+    </pre>
   );
 }

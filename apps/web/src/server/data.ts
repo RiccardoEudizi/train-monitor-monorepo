@@ -1,14 +1,17 @@
-import { and, desc, eq, gte, ilike, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, inArray, or, sql } from "drizzle-orm";
 import { infoNews, stations, stops, trainRuns } from "~/db/schema";
 import type {
   BoardRes,
   DelaysRes,
   NewsRes,
+  OverviewRes,
   PeriodStats,
+  RegionStat,
   StationItem,
   TrainDetail,
 } from "~/lib/api-types";
 import { statoFor, temporalStatus } from "~/lib/api-types";
+import { resolveRegion, regionName } from "~/lib/regions";
 import { searchSeed, seedByCode } from "~/lib/stations-seed";
 import { db, dbConfigured } from "~/server/db";
 
@@ -196,6 +199,20 @@ export async function fetchTrain(
     .where(eq(stops.runId, run.id))
     .orderBy(stops.orderIdx);
 
+  // Risolve i nomi delle stazioni (gli stop salvano solo lo stationCode).
+  // Fallback: seed delle major → codice grezzo se proprio manca dal DB.
+  const stopCodes = [...new Set(stopRows.map((s) => s.stationCode))];
+  const nameByCode = new Map<string, string>();
+  if (stopCodes.length > 0) {
+    const stationRows = await database
+      .select({ code: stations.code, name: stations.name })
+      .from(stations)
+      .where(inArray(stations.code, stopCodes));
+    for (const r of stationRows) nameByCode.set(r.code, r.name);
+  }
+  const stopName = (code: string) =>
+    nameByCode.get(code) ?? seedByCode(code)?.name ?? code;
+
   const delay = run.lastDelay ?? 0;
   const delayStato = statoFor(delay, run.provvedimento ?? 0);
   const temporal = temporalStatus(run.orarioPartenza?.toISOString() ?? null, run.orarioArrivo?.toISOString() ?? null);
@@ -226,7 +243,7 @@ export async function fetchTrain(
       lastRilevamentoStazione: run.lastRilevamentoStazione,
     },
     stops: stopRows.map((s, i) => ({
-      station: s.stationCode,
+      station: stopName(s.stationCode),
       code: s.stationCode,
       order: s.orderIdx ?? i,
       tipoFermata: s.tipoFermata,
@@ -323,8 +340,28 @@ const emptyStats: PeriodStats = {
   avgMaxEnroute: 0,
   avgRecupero: 0,
   cancellRate: 0,
+  delayedCount: 0,
+  delayedRate: 0,
+  totalDelay: 0,
   series: [],
 };
+
+/** Soglia "in ritardo" per la panoramica home (richiesta: > 0'). */
+export const DELAY_THRESHOLD = 0;
+
+/**
+ * Normalizza i periodi Ereignisse home + treno/stazione.
+ * Home: "1d" | "7d" | "30d" | "total". Treno: "24h" | "7d" | "30d" | "all".
+ * Ritorna i giorni di finestra, oppure null = tutto lo storico.
+ */
+export function normalizePeriodDays(period: string): number | null {
+  const p = (period ?? "").trim().toLowerCase();
+  if (p === "24h" || p === "1d" || p === "day" || p === "daily") return 1;
+  if (p === "7d" || p === "week" || p === "7g") return 7;
+  if (p === "30d" || p === "month" || p === "30g") return 30;
+  if (p === "all" || p === "total" || p === "totale" || p === "tot") return null;
+  return 30;
+}
 
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
@@ -342,9 +379,13 @@ export async function fetchStats(
   id: string,
   period: string,
 ): Promise<PeriodStats & { dbConfigured: boolean; period: string }> {
-  const days = period === "24h" ? 1 : period === "7d" ? 7 : 30;
-  const since = new Date(Date.now() - days * 24 * 3600 * 1000);
-  const sinceDate = since.toISOString().slice(0, 10);
+  const days = normalizePeriodDays(period);
+  const sinceDate =
+    days == null
+      ? null
+      : new Date(Date.now() - days * 24 * 3600 * 1000)
+          .toISOString()
+          .slice(0, 10);
 
   const database = db();
   if (!database) {
@@ -353,18 +394,25 @@ export async function fetchStats(
 
   if (scope === "station" && id) {
     const { dailyStopStats } = await import("~/db/schema");
-    const rows = await database
-      .select()
-      .from(dailyStopStats)
-      .where(
-        and(
-          eq(dailyStopStats.stationCode, id),
-          gte(dailyStopStats.runDate, sinceDate),
-        ),
-      );
+    const rows = sinceDate
+      ? await database
+          .select()
+          .from(dailyStopStats)
+          .where(
+            and(
+              eq(dailyStopStats.stationCode, id),
+              gte(dailyStopStats.runDate, sinceDate),
+            ),
+          )
+      : await database
+          .select()
+          .from(dailyStopStats)
+          .where(eq(dailyStopStats.stationCode, id));
     const finals = rows.map((r) => r.delayArrFinal ?? 0).sort((a, b) => a - b);
     const maxes = rows.map((r) => r.delayMax ?? 0);
     const cancelled = rows.filter((r) => r.cancelled).length;
+    const delayedCount = finals.filter((v) => v > DELAY_THRESHOLD).length;
+    const totalDelay = finals.reduce((a, b) => a + b, 0);
     const byDay = new Map<string, { sum: number; max: number; n: number }>();
     for (const r of rows) {
       const d = byDay.get(r.runDate) ?? { sum: 0, max: 0, n: 0 };
@@ -381,6 +429,11 @@ export async function fetchStats(
       avgMaxEnroute: 0,
       avgRecupero: 0,
       cancellRate: rows.length ? Math.round((cancelled / rows.length) * 1000) / 10 : 0,
+      delayedCount,
+      delayedRate: rows.length
+        ? Math.round((delayedCount / rows.length) * 1000) / 10
+        : 0,
+      totalDelay,
       series: [...byDay.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([date, d]) => ({
@@ -394,21 +447,34 @@ export async function fetchStats(
     };
   }
 
-  const conds = [gte(trainRuns.dataPartenza, sinceDate)];
+  const conds = [];
+  if (sinceDate) conds.push(gte(trainRuns.dataPartenza, sinceDate));
   if (scope === "train" && id) conds.push(eq(trainRuns.numero, id));
-  const rows = await database
-    .select({
-      lastDelay: trainRuns.lastDelay,
-      maxDelay: trainRuns.maxDelay,
-      provvedimento: trainRuns.provvedimento,
-      dataPartenza: trainRuns.dataPartenza,
-    })
-    .from(trainRuns)
-    .where(and(...conds));
+  const rows =
+    conds.length > 0
+      ? await database
+          .select({
+            lastDelay: trainRuns.lastDelay,
+            maxDelay: trainRuns.maxDelay,
+            provvedimento: trainRuns.provvedimento,
+            dataPartenza: trainRuns.dataPartenza,
+          })
+          .from(trainRuns)
+          .where(and(...conds))
+      : await database
+          .select({
+            lastDelay: trainRuns.lastDelay,
+            maxDelay: trainRuns.maxDelay,
+            provvedimento: trainRuns.provvedimento,
+            dataPartenza: trainRuns.dataPartenza,
+          })
+          .from(trainRuns);
 
   const finals = rows.map((r) => r.lastDelay ?? 0).sort((a, b) => a - b);
   const maxes = rows.map((r) => r.maxDelay ?? r.lastDelay ?? 0);
   const cancelled = rows.filter((r) => (r.provvedimento ?? 0) === 1).length;
+  const delayedCount = finals.filter((v) => v > DELAY_THRESHOLD).length;
+  const totalDelay = finals.reduce((a, b) => a + b, 0);
   const recupero =
     rows.length > 0 ? avg(maxes) - avg(finals) : 0;
 
@@ -428,6 +494,11 @@ export async function fetchStats(
     avgMaxEnroute: avg(maxes),
     avgRecupero: Math.round(recupero * 10) / 10,
     cancellRate: rows.length ? Math.round((cancelled / rows.length) * 1000) / 10 : 0,
+    delayedCount,
+    delayedRate: rows.length
+      ? Math.round((delayedCount / rows.length) * 1000) / 10
+      : 0,
+    totalDelay,
     series: [...byDay.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, d]) => ({
@@ -438,6 +509,109 @@ export async function fetchStats(
       })),
     dbConfigured: true,
     period,
+  };
+}
+
+/**
+ * Panoramica nazionale per la home: media nazionale, regione con più ritardo
+ * e incidenza % — tutto sul periodo richiesto ("1d" | "7d" | "30d" | "total",
+ * alias di "24h"/"all" accettati).
+ *
+ * Attribuzione regione: ogni corsa conta una volta sola e viene attribuita
+ * alla regione del suo ultimo rilevamento = ultima fermata con dato reale
+ * (actual_arr/actual_dep, order_idx max); se nessuna, si ripiega sulla
+ * stazione di origine. La regione "peggiore" è quella con la somma cumulata
+ * di ritardi più alta nel periodo; soglia "in ritardo": last_delay > 0'.
+ */
+export async function fetchOverview(period: string): Promise<OverviewRes> {
+  const national = await fetchStats("global", "", period);
+
+  const database = db();
+  if (!database) {
+    return {
+      period,
+      dbConfigured: false,
+      national,
+      worstRegion: null,
+      regions: [],
+    };
+  }
+
+  const days = normalizePeriodDays(period);
+  const sinceDate =
+    days == null
+      ? null
+      : new Date(Date.now() - days * 24 * 3600 * 1000)
+          .toISOString()
+          .slice(0, 10);
+
+  // Una riga per corsa: ritardo finale + regione dell'ultimo rilevamento.
+  const perRun = (await database.execute(sql`
+    SELECT r.last_delay AS "lastDelay",
+           COALESCE(sl.region_id, so.region_id) AS "regionId",
+           COALESCE(sl.code, so.code) AS "stationCode"
+    FROM train_runs r
+    LEFT JOIN LATERAL (
+      SELECT stat.region_id AS region_id, st.station_code AS code
+      FROM stops st
+      LEFT JOIN stations stat ON stat.code = st.station_code
+      WHERE st.run_id = r.id
+        AND (st.actual_arr IS NOT NULL OR st.actual_dep IS NOT NULL)
+      ORDER BY st.order_idx DESC
+      LIMIT 1
+    ) sl ON true
+    LEFT JOIN stations so ON so.code = r.origine_code
+    ${sinceDate ? sql`WHERE r.data_partenza >= ${sinceDate}` : sql``}
+  `)) as unknown as Array<{
+    lastDelay: number | null;
+    regionId: number | null;
+    stationCode: string | null;
+  }>;
+
+  const byRegion = new Map<
+    string,
+    { regionId: number | null; runs: number; delayed: number; total: number; max: number }
+  >();
+  for (const row of perRun) {
+    const delay = row.lastDelay ?? 0;
+    const regionId = resolveRegion(row.stationCode, row.regionId);
+    const key = regionId == null ? "null" : String(regionId);
+    const agg = byRegion.get(key) ?? {
+      regionId,
+      runs: 0,
+      delayed: 0,
+      total: 0,
+      max: 0,
+    };
+    agg.runs += 1;
+    agg.total += delay;
+    if (delay > DELAY_THRESHOLD) agg.delayed += 1;
+    if (delay > agg.max) agg.max = delay;
+    byRegion.set(key, agg);
+  }
+
+  const regions: RegionStat[] = [...byRegion.values()]
+    .map((a) => ({
+      regionId: a.regionId,
+      name: regionName(a.regionId),
+      runs: a.runs,
+      delayedCount: a.delayed,
+      totalDelay: a.total,
+      avgDelay: a.runs
+        ? Math.round((a.total / a.runs) * 10) / 10
+        : 0,
+      maxDelay: a.max,
+    }))
+    .sort(
+      (a, b) => b.totalDelay - a.totalDelay || b.delayedCount - a.delayedCount,
+    );
+
+  return {
+    period,
+    dbConfigured: true,
+    national,
+    worstRegion: regions[0] ?? null,
+    regions: regions.slice(0, 6),
   };
 }
 

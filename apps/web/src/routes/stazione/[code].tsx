@@ -16,6 +16,7 @@ import {
   Sparkline,
   TrainStatus,
 } from "~/components/ui";
+import { AsciiFx, PixelValue } from "~/components/fx";
 import { fmtDateTime, fmtTime } from "~/lib/format";
 import { getBoardQuery, getStatsQuery } from "~/lib/queries";
 import { useLive } from "~/lib/sse";
@@ -94,14 +95,29 @@ export default function Stazione() {
               <div class="flex items-center gap-6">
                 <div>
                   <p class="text-2xl font-bold tabular-nums">
-                    +{stats()?.avgFinal ?? 0}'
+                    <PixelValue value={`+${stats()?.avgFinal ?? 0}'`}>
+                      +{stats()?.avgFinal ?? 0}'
+                    </PixelValue>
                   </p>
                   <p class="text-xs text-zinc-500">ritardo medio arrivi</p>
                 </div>
-                <Sparkline values={(stats()?.series ?? []).map((s) => s.avgFinal)} />
+                <AsciiFx
+                  watch={(stats()?.series ?? []).map((s) => s.avgFinal).join(",")}
+                >
+                  <Sparkline values={(stats()?.series ?? []).map((s) => s.avgFinal)} />
+                </AsciiFx>
                 <p class="ml-auto text-xs tabular-nums text-zinc-500">
-                  {stats()?.runs} corse · max +{stats()?.maxFinal}' · canc{" "}
-                  {stats()?.cancellRate}%
+                  <PixelValue value={`${stats()?.runs}`}>
+                    {stats()?.runs}
+                  </PixelValue>{" "}
+                  corse · max{" "}
+                  <PixelValue value={`+${stats()?.maxFinal}'`}>
+                    +{stats()?.maxFinal}'
+                  </PixelValue>{" "}
+                  · canc{" "}
+                  <PixelValue value={`${stats()?.cancellRate}%`}>
+                    {stats()?.cancellRate}%
+                  </PixelValue>
                 </p>
               </div>
             </section>
@@ -115,7 +131,18 @@ export default function Stazione() {
             fallback={<SectionTitle>partenze / arrivi live</SectionTitle>}
           >
             <SectionTitle
-              right={`${filteredTrains().length} / ${board()?.trains.length ?? 0} treni`}
+              right={
+                <>
+                  <PixelValue value={`${filteredTrains().length}`}>
+                    {filteredTrains().length}
+                  </PixelValue>{" "}
+                  /{" "}
+                  <PixelValue value={`${board()?.trains.length ?? 0}`}>
+                    {board()?.trains.length ?? 0}
+                  </PixelValue>{" "}
+                  treni
+                </>
+              }
             >
               partenze / arrivi live
             </SectionTitle>

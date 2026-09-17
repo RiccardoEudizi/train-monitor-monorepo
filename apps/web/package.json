@@ -15,6 +15,7 @@
   "dependencies": {
     "@fontsource/geist-mono": "^5.3.0",
     "@jridgewell/resolve-uri": "^3.1.2",
+    "@kobalte/core": "^0.13.14",
     "@solidjs/router": "^1.0.0",
     "@solidjs/start": "2.0.0",
     "dotenv": "^17.4.2",

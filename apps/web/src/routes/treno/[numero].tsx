@@ -10,6 +10,7 @@ import {
   Sparkline,
   TrainStatus,
 } from "~/components/ui";
+import { AsciiFx, PixelValue } from "~/components/fx";
 import { delayClass, fmtDateEU, fmtTime } from "~/lib/format";
 import { getStatsQuery, getTrainQuery } from "~/lib/queries";
 import { useLive } from "~/lib/sse";
@@ -114,19 +115,37 @@ export default function Treno() {
               <div class="rounded border border-zinc-200 p-4 dark:border-zinc-800">
                 <p class="text-[11px] uppercase tracking-widest text-zinc-500">media finale {period()}</p>
                 <p class="mt-1 text-3xl font-bold tabular-nums">
-                  +{stats()?.avgFinal ?? 0}'
+                  <PixelValue value={`+${stats()?.avgFinal ?? 0}'`}>
+                    +{stats()?.avgFinal ?? 0}'
+                  </PixelValue>
                 </p>
                 <p class="mt-1 text-xs text-zinc-500">
-                  su {stats()?.runs ?? 0} corse · max +{stats()?.maxFinal ?? 0}'
+                  su{" "}
+                  <PixelValue value={`${stats()?.runs ?? 0}`}>
+                    {stats()?.runs ?? 0}
+                  </PixelValue>{" "}
+                  corse · max{" "}
+                  <PixelValue value={`+${stats()?.maxFinal ?? 0}'`}>
+                    +{stats()?.maxFinal ?? 0}'
+                  </PixelValue>
                 </p>
               </div>
               <div class="rounded border border-zinc-200 p-4 dark:border-zinc-800">
                 <p class="text-[11px] uppercase tracking-widest text-zinc-500">recupero medio</p>
                 <p class="mt-1 text-3xl font-bold tabular-nums">
-                  {stats()?.avgRecupero ?? 0}'
+                  <PixelValue value={`${stats()?.avgRecupero ?? 0}'`}>
+                    {stats()?.avgRecupero ?? 0}'
+                  </PixelValue>
                 </p>
                 <p class="mt-1 text-xs text-zinc-500">
-                  p95 +{stats()?.p95Final ?? 0}' · canc {stats()?.cancellRate ?? 0}%
+                  p95{" "}
+                  <PixelValue value={`+${stats()?.p95Final ?? 0}'`}>
+                    +{stats()?.p95Final ?? 0}'
+                  </PixelValue>{" "}
+                  · canc{" "}
+                  <PixelValue value={`${stats()?.cancellRate ?? 0}%`}>
+                    {stats()?.cancellRate ?? 0}%
+                  </PixelValue>
                 </p>
               </div>
             </section>
@@ -151,7 +170,11 @@ export default function Treno() {
           <span class="ml-auto hidden text-zinc-500 sm:inline">
             <ErrorBoundary fallback={<></>}>
               <Suspense>
-                <Sparkline values={(stats()?.series ?? []).map((s) => s.avgFinal)} />
+                <AsciiFx
+                  watch={(stats()?.series ?? []).map((s) => s.avgFinal).join(",")}
+                >
+                  <Sparkline values={(stats()?.series ?? []).map((s) => s.avgFinal)} />
+                </AsciiFx>
               </Suspense>
             </ErrorBoundary>
           </span>
@@ -162,7 +185,16 @@ export default function Treno() {
       <section>
         <ErrorBoundary fallback={<></>}>
           <Suspense fallback={<SectionTitle>fermate · ritardo per stazione</SectionTitle>}>
-            <SectionTitle right={`${detail()?.stops.length ?? 0} fermate`}>
+            <SectionTitle
+              right={
+                <>
+                  <PixelValue value={`${detail()?.stops.length ?? 0}`}>
+                    {detail()?.stops.length ?? 0}
+                  </PixelValue>{" "}
+                  fermate
+                </>
+              }
+            >
               fermate · ritardo per stazione
             </SectionTitle>
           </Suspense>
@@ -205,11 +237,21 @@ export default function Treno() {
                         </Show>
                       </span>
                       <span class={`text-sm font-bold tabular-nums ${delayClass(Math.max(s.delayArr, s.delayDep))}`}>
-                        {s.status === "skipped"
-                          ? "—"
-                          : s.delayArr > 0 || s.delayDep > 0
-                            ? `+${Math.max(s.delayArr, s.delayDep)}'`
-                            : "ok"}
+                        <PixelValue
+                          value={
+                            s.status === "skipped"
+                              ? "—"
+                              : s.delayArr > 0 || s.delayDep > 0
+                                ? `+${Math.max(s.delayArr, s.delayDep)}'`
+                                : "ok"
+                          }
+                        >
+                          {s.status === "skipped"
+                            ? "—"
+                            : s.delayArr > 0 || s.delayDep > 0
+                              ? `+${Math.max(s.delayArr, s.delayDep)}'`
+                              : "ok"}
+                        </PixelValue>
                       </span>
                     </div>
                   )}

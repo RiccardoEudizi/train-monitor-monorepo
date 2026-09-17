@@ -1,4 +1,5 @@
 import { A } from "@solidjs/router";
+import CommandPalette from "~/components/CommandPalette";
 import { ThemeToggle } from "~/components/ui";
 
 export default function Nav() {
@@ -16,6 +17,7 @@ export default function Nav() {
           <span class="hidden sm:inline">live</span>
         </nav>
         <div class="ml-auto flex items-center gap-2">
+          <CommandPalette />
           <ThemeToggle />
         </div>
       </div>

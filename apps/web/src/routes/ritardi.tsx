@@ -9,6 +9,7 @@ import {
   TrainRow,
 } from "~/components/ui";
 import { getDelaysQuery } from "~/lib/queries";
+import { PixelValue } from "~/components/fx";
 import { useLive } from "~/lib/sse";
 
 export const route = {
@@ -67,7 +68,12 @@ export default function Ritardi() {
         <span class="ml-auto text-zinc-500">
           <ErrorBoundary fallback={<span>—</span>}>
             <Suspense fallback={<Spinner />}>
-              <Show when={res()}>{res()?.items.length ?? 0} treni</Show>
+              <Show when={res()}>
+                <PixelValue value={`${res()?.items.length ?? 0}`}>
+                  {res()?.items.length ?? 0}
+                </PixelValue>{" "}
+                treni
+              </Show>
             </Suspense>
           </ErrorBoundary>
         </span>
