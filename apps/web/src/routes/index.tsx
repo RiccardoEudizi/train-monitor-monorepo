@@ -174,9 +174,10 @@ export default function Home() {
           <div class="flex items-center gap-2 text-xs">
             {/* Fetch indicator: same box as the day chips (transparent
                 border) + fixed inner width, so idle and spinning states
-                occupy identical space — true shim, zero shift. */}
+                occupy identical space — true shim, zero shift. Mobile:
+                spinner after the chips; sm+: spinner before them. */}
             <span
-              class="inline-flex items-center justify-center rounded border border-transparent px-2 py-1 text-zinc-400"
+              class="inline-flex order-last items-center justify-center rounded border border-transparent px-2 py-1 text-zinc-400 sm:order-first"
               role="status"
               aria-label={ovPending() ? "caricamento statistiche" : undefined}
             >
