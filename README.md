@@ -2,6 +2,8 @@
 
 Public, no-auth live board of Italian train delays.
 
+MIT licensed — see [LICENSE](LICENSE).
+
 Data flow: `ViaggiaTreno → Go poller → Postgres → SolidStart`. The app never calls ViaggiaTreno directly.
 
 ## Layout
