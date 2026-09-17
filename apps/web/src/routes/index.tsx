@@ -5,6 +5,8 @@ import {
   createSignal,
   ErrorBoundary,
   For,
+  onCleanup,
+  onMount,
   Show,
   Suspense,
 } from "solid-js";
@@ -73,6 +75,18 @@ export default function Home() {
 
   // Panoramica nazionale con filtri come /treno/: 1d / 7d / 30d / total.
   const [ovPeriod, setOvPeriod] = createSignal<StatsPeriod>("30d");
+
+  // Trend rows follow the md breakpoint: 4 rows on mobile so the chart
+  // matches the text column height beside it, 7 rows stacked on md+.
+  // Mount-only → SSR renders the mobile variant, desktop upgrades on hydrate.
+  const [isDesktop, setIsDesktop] = createSignal(false);
+  onMount(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    setIsDesktop(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener("change", onChange);
+    onCleanup(() => mq.removeEventListener("change", onChange));
+  });
   const overview = createAsync(() => getOverviewQuery(ovPeriod()), {
     deferStream: true,
   });
@@ -236,38 +250,46 @@ export default function Home() {
                 <p class="text-[11px] uppercase tracking-widest text-zinc-500">
                   media nazionale ritardi
                 </p>
-                <p class="mt-1 min-h-9 text-3xl font-bold tabular-nums">
-                  <PixelValue
-                    value={`+${overview.latest?.national.avgFinal ?? 0}'`}
-                  >
-                    +{overview.latest?.national.avgFinal ?? 0}'
-                  </PixelValue>
-                </p>
-                <p class="mt-1 min-h-4 text-xs tabular-nums text-zinc-500">
-                  su{" "}
-                  <PixelValue value={`${overview.latest?.national.runs ?? 0}`}>
-                    {overview.latest?.national.runs ?? 0}
-                  </PixelValue>{" "}
-                  corse · max{" "}
-                  <PixelValue
-                    value={`+${overview.latest?.national.maxFinal ?? 0}'`}
-                  >
-                    +{overview.latest?.national.maxFinal ?? 0}'
-                  </PixelValue>
-                </p>
-                <div class="mt-2 min-h-[86px]">
-                  <AsciiFx
-                    watch={(overview.latest?.national.series ?? [])
-                      .map((s) => s.avgFinal)
-                      .join(",")}
-                  >
-                    <AsciiTrend
-                      values={(overview.latest?.national.series ?? []).map(
-                        (s) => s.avgFinal,
-                      )}
-                      label="trend media giornaliera ritardi"
-                    />
-                  </AsciiFx>
+                {/* Mobile: text left, chart right. md+: contents → stacks as before. */}
+                <div class="flex items-center justify-between gap-3 md:contents">
+                  <div class="min-w-0">
+                    <p class="mt-1 min-h-9 text-3xl font-bold tabular-nums">
+                      <PixelValue
+                        value={`+${overview.latest?.national.avgFinal ?? 0}'`}
+                      >
+                        +{overview.latest?.national.avgFinal ?? 0}'
+                      </PixelValue>
+                    </p>
+                    <p class="mt-1 min-h-4 text-xs tabular-nums text-zinc-500">
+                      su{" "}
+                      <PixelValue
+                        value={`${overview.latest?.national.runs ?? 0}`}
+                      >
+                        {overview.latest?.national.runs ?? 0}
+                      </PixelValue>{" "}
+                      corse · max{" "}
+                      <PixelValue
+                        value={`+${overview.latest?.national.maxFinal ?? 0}'`}
+                      >
+                        +{overview.latest?.national.maxFinal ?? 0}'
+                      </PixelValue>
+                    </p>
+                  </div>
+                  <div class="min-w-0 flex-1 md:mt-2 md:min-h-[86px]">
+                    <AsciiFx
+                      watch={(overview.latest?.national.series ?? [])
+                        .map((s) => s.avgFinal)
+                        .join(",")}
+                    >
+                      <AsciiTrend
+                        values={(overview.latest?.national.series ?? []).map(
+                          (s) => s.avgFinal,
+                        )}
+                        height={isDesktop() ? 7 : 4}
+                        label="trend media giornaliera ritardi"
+                      />
+                    </AsciiFx>
+                  </div>
                 </div>
               </div>
               <div>
@@ -343,21 +365,26 @@ export default function Home() {
                 <p class="text-[11px] uppercase tracking-widest text-zinc-500">
                   incidenza ritardi
                 </p>
-                <p class="mt-1 min-h-9 text-3xl font-bold tabular-nums">
-                  <PixelValue
-                    value={`${overview.latest?.national.delayedRate ?? 0}%`}
-                  >
-                    {overview.latest?.national.delayedRate ?? 0}%
-                  </PixelValue>
-                </p>
-                <div class="mt-2">
-                  <AsciiFx
-                    watch={`${overview.latest?.national.delayedRate ?? 0}`}
-                  >
-                    <AsciiGauge
-                      pct={overview.latest?.national.delayedRate ?? 0}
-                    />
-                  </AsciiFx>
+                {/* Mobile: text left, chart right. md+: contents → stacks as before. */}
+                <div class="flex items-center justify-between gap-3 md:contents">
+                  <div class="min-w-0">
+                    <p class="mt-1 min-h-9 text-3xl font-bold tabular-nums">
+                      <PixelValue
+                        value={`${overview.latest?.national.delayedRate ?? 0}%`}
+                      >
+                        {overview.latest?.national.delayedRate ?? 0}%
+                      </PixelValue>
+                    </p>
+                  </div>
+                  <div class="min-w-0 flex-1 md:mt-2">
+                    <AsciiFx
+                      watch={`${overview.latest?.national.delayedRate ?? 0}`}
+                    >
+                      <AsciiGauge
+                        pct={overview.latest?.national.delayedRate ?? 0}
+                      />
+                    </AsciiFx>
+                  </div>
                 </div>
                 <div class="min-h-4">
                   <p class="mt-1 text-xs tabular-nums text-zinc-500">
