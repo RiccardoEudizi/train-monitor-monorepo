@@ -26,8 +26,10 @@ import {
   TrainRow,
 } from "~/components/ui";
 import { AsciiFx, PixelValue } from "~/components/fx";
+import Seo from "~/components/Seo";
 import type { StationItem, StatsPeriod } from "~/lib/api-types";
 import { getDelaysQuery, getNewsQuery, getOverviewQuery } from "~/lib/queries";
+import { pageTitle, SITE_DESCRIPTION } from "~/lib/seo";
 import { useLive } from "~/lib/sse";
 
 export const route = {
@@ -132,6 +134,11 @@ export default function Home() {
 
   return (
     <main class="mx-auto max-w-5xl px-4 pb-16">
+      <Seo
+        title={pageTitle("Ritardi treni in tempo reale")}
+        description={SITE_DESCRIPTION}
+        path="/"
+      />
       {/* hero */}
       <section class="py-8">
         <p class="text-xs uppercase tracking-[0.25em] text-zinc-500">

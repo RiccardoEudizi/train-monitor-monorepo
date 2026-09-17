@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+# API is data-only; pages are fully public so everything else is crawlable.
+Disallow: /api/
+
+Sitemap: https://train-monitor-v2.vercel.app/sitemap.xml

@@ -1,8 +1,17 @@
 import { A } from "@solidjs/router";
+import { HttpStatusCode } from "@solidjs/start";
+import Seo from "~/components/Seo";
 
 export default function NotFound() {
   return (
     <main class="mx-auto max-w-5xl px-4 pb-16 text-center">
+      <HttpStatusCode code={404} />
+      <Seo
+        title="Pagina non trovata"
+        description="La pagina che cerchi non esiste o è stata spostata."
+        path="/404"
+        index={false}
+      />
       <p class="py-8 text-xs uppercase tracking-[0.25em] text-zinc-500">
         errore · 404
       </p>

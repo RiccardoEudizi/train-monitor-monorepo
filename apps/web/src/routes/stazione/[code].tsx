@@ -21,8 +21,10 @@ import {
   TrainStatus,
 } from "~/components/ui";
 import { AsciiFx, PixelValue } from "~/components/fx";
+import Seo from "~/components/Seo";
 import { fmtDateTime, fmtTime } from "~/lib/format";
 import { getBoardQuery, getStatsQuery } from "~/lib/queries";
+import { pageTitle, SITE_NAME } from "~/lib/seo";
 import { useLive } from "~/lib/sse";
 
 export const route = {
@@ -70,6 +72,18 @@ export default function Stazione() {
 
   return (
     <main class="mx-auto max-w-5xl px-4 pb-16">
+      <ErrorBoundary fallback={
+        <Seo title={pageTitle(`Stazione ${code()}`)} description="Tabellone temporaneamente non disponibile." path={`/stazione/${encodeURIComponent(code())}`} index={false} />
+      }>
+        <Suspense>
+          <Seo
+            title={pageTitle(`${board()?.station.name ?? code()}: arrivi e partenze`)}
+            description={`Arrivi, partenze e ritardi a ${board()?.station.name ?? code()}. Consulta il tabellone e lo storico degli ultimi 30 giorni su ${SITE_NAME}.`}
+            path={`/stazione/${encodeURIComponent(code())}`}
+            index={!!board() && board()?.station.name !== code()}
+          />
+        </Suspense>
+      </ErrorBoundary>
       <section class="py-8">
         <p class="text-xs uppercase tracking-[0.25em] text-zinc-500">
           stazione · {code()}

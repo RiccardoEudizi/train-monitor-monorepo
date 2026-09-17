@@ -12,9 +12,6 @@ export default createHandler(() => (
       return (
         <html lang="it" class={dark ? "dark" : undefined}>
           <head>
-            <meta charset="utf-8" />
-            <meta name="viewport" content="width=device-width, initial-scale=1" />
-            <link rel="icon" href="/favicon.ico" />
             {assets}
           </head>
           <body>

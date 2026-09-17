@@ -12,6 +12,8 @@ import {
 } from "~/components/ui";
 import { getDelaysQuery } from "~/lib/queries";
 import { PixelValue } from "~/components/fx";
+import Seo from "~/components/Seo";
+import { pageTitle } from "~/lib/seo";
 import { useLive } from "~/lib/sse";
 
 export const route = {
@@ -46,6 +48,11 @@ export default function Ritardi() {
 
   return (
     <main class="mx-auto max-w-5xl px-4 pb-16">
+      <Seo
+        title={pageTitle("Ritardi treni ora")}
+        description="Classifica live dei treni in ritardo in Italia: filtra per ritardo minimo e categoria (FR, IC, REG) e guarda i peggiori treni in ritardo adesso."
+        path="/ritardi"
+      />
       <section class="py-8">
         <p class="text-xs uppercase tracking-[0.25em] text-zinc-500">ranking live</p>
         <h1 class="mt-2 text-3xl font-bold tracking-tight">Ritardi</h1>

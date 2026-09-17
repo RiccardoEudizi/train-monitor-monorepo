@@ -38,6 +38,12 @@ export default defineConfig({
   optimizeDeps: {
     include: ["@jridgewell/resolve-uri", "@jridgewell/trace-mapping"],
   },
+  // The same build-time flag is used by SSR and the client (no middleware).
+  define: {
+    "import.meta.env.SEO_NOINDEX": JSON.stringify(
+      process.env.VERCEL_ENV !== undefined && process.env.VERCEL_ENV !== "production",
+    ),
+  },
   plugins: [
     solidStart(),
     tailwindcss(),

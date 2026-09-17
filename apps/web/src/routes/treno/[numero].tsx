@@ -14,8 +14,10 @@ import {
   TrainStatus,
 } from "~/components/ui";
 import { AsciiFx, PixelValue } from "~/components/fx";
+import Seo from "~/components/Seo";
 import { delayClass, fmtDateEU, fmtTime } from "~/lib/format";
 import { getStatsQuery, getTrainQuery } from "~/lib/queries";
+import { pageTitle, SITE_NAME } from "~/lib/seo";
 import { useLive } from "~/lib/sse";
 
 export const route = {
@@ -55,6 +57,11 @@ export default function Treno() {
 
   return (
     <main class="mx-auto max-w-5xl px-4 pb-16">
+      <Seo
+        title={pageTitle(`Treno ${numero()}`)}
+        description={`Treno ${numero()} su ${SITE_NAME}: fermate, ritardo per stazione e storico ritardi. Dati ViaggiaTreno aggiornati dal poller.`}
+        path={`/treno/${numero()}`}
+      />
       <section class="py-8">
         <p class="text-xs uppercase tracking-[0.25em] text-zinc-500">
           treno · {numero()}
