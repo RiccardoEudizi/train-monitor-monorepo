@@ -83,6 +83,14 @@ Without `DATABASE_URL`: `db()==null → dbConfigured:false`. Station search + bo
 
 SSE at `/api/live[?station=][?train=]`, 12s poll, diff-push or heartbeat. Client `useLive()` connects only after mount (no hydration mismatch), exponential backoff to 30s, `revalidate()` on data messages.
 
+## Responsive layout
+
+Panoramica (`/`) adapts below the `md` breakpoint (`src/routes/index.tsx`):
+
+- Header: fetch spinner shim renders right of the period chips on mobile, left on `sm+` (`order-last sm:order-first`, DOM order unchanged).
+- Stat blocks with charts (`media nazionale`, `incidenza`): text column left, chart right on mobile via an `md:contents` wrapper — `md+` stacks exactly as before.
+- Trend chart renders 4 rows on mobile (≈ text-column height) vs 7 on desktop, via a mount-only `matchMedia("(min-width: 768px)")` signal (SSR renders the mobile variant, desktop upgrades on hydrate).
+
 ## Deployment
 
 ```bash

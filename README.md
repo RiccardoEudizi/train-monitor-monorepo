@@ -74,4 +74,4 @@ pnpm build && pnpm start        # web: serves apps/web/.output/server/index.mjs
 pnpm poller:build && ./bin/poller
 ```
 
-Use `db:migrate` (not `push`) in prod. No CI yet. See `apps/web/README.md` (routes, API, stats model, degraded mode) and `services/poller/README.md` (pipeline details).
+Use `db:migrate` (not `push`) in prod. No CI yet. See `apps/web/README.md` (routes, API, stats model, degraded mode, responsive layout) and `services/poller/README.md` (pipeline details).

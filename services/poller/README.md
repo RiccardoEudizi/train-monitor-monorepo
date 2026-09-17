@@ -50,6 +50,8 @@ details without clearing `is_major`.
 | `WORKERS` | `25` | Max concurrent ViaggiaTreno requests |
 | `MAJORS_ONLY` | `true` | Poll only `is_major` stations; `false` sweeps all seeded stations |
 
+Env lookup: `services/poller/.env`, then the monorepo-root `.env` (a single root `.env` covers both the poller and the web app). Real environment variables always win.
+
 ## Layout
 
 - `cmd/poller` — ingest loop (graceful shutdown on SIGINT/SIGTERM).
