@@ -2,6 +2,7 @@
 
 Go ingester for train-monitor-v2. Polls ViaggiaTreno, writes Postgres.
 No aggregation here — the app computes stats in SQL.
+Runs on its own always-on host (not Vercel) against the same `DATABASE_URL`.
 
 ## How it works
 

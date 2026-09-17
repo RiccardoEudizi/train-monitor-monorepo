@@ -52,7 +52,7 @@ pnpm poller:run        # loop every POLL_INTERVAL_SECONDS (default 120)
 
 | Var | Default | Meaning |
 |---|---|---|
-| `DATABASE_URL` | — | Postgres connection string (required, shared) |
+| `DATABASE_URL` | — | Postgres connection string (required, shared; on Neon use the pooled string) |
 | `POLL_INTERVAL_SECONDS` | `120` | Seconds between poller cycles |
 | `WORKERS` | `25` | Max concurrent ViaggiaTreno requests |
 | `MAJORS_ONLY` | `true` | Poll only `is_major` stations; `false` sweeps all seeded stations |
@@ -71,8 +71,11 @@ Tables: `stations`, `train_runs` (keyed by `(numero, origine_code, data_partenza
 
 Two deployables sharing `DATABASE_URL`:
 
+- **Web → Vercel.** Project Root Directory `apps/web` (the Go poller is never uploaded). Settings: `NITRO_PRESET=vercel` env var, Node.js 24.x, `DATABASE_URL` from the Neon Marketplace integration, Ignored Build Step `git diff --quiet HEAD^ HEAD -- apps/web/`.
+- **Poller → separate always-on host** (Vercel can't run the ingest loop):
+
 ```bash
-pnpm build && pnpm start        # web: serves apps/web/.output/server/index.mjs
+pnpm build && pnpm start        # web self-hosted alt: serves apps/web/.output/server/index.mjs
 pnpm poller:build && ./bin/poller
 ```
 

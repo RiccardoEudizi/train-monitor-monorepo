@@ -47,6 +47,8 @@ DATABASE_URL=postgresql://user:password@localhost:5432/train_monitor_v2
 
 Loading order: `vite.config.ts` preloads `apps/web/.env` for dev SSR, `drizzle.config.ts` for CLI, `src/server/db.ts` walks `apps/web/.env` → repo-root `.env` → `cwd/.env` as fallback. Nitro loads `.env` itself in prod.
 
+DB client: `@neondatabase/serverless` HTTP driver (`drizzle-orm/neon-http`, see `src/server/db.ts`) — no TCP pooling to configure, safe on serverless. Works with any Postgres URL; on Neon either the direct or pooled string works.
+
 ## Poller contract
 
 Live data is written by the Go poller (`../../services/poller`): `stations`, `train_runs`, `stops`, `stop_snapshots`, `daily_stop_stats` (rollup), `info_news(kind=ticker|news|lavori|stats, payload=jsonb)`. No poller = degraded mode (below). Seed target list: `src/lib/stations-seed.ts` (85 Tier-1 majors).
@@ -94,8 +96,10 @@ Panoramica (`/`) adapts below the `md` breakpoint (`src/routes/index.tsx`):
 ## Deployment
 
 ```bash
-pnpm build && pnpm start   # serves .output/server/index.mjs
+pnpm build && pnpm start   # serves .output/server/index.mjs (self-hosted)
 ```
+
+On Vercel: project Root Directory `apps/web`, `NITRO_PRESET=vercel` env var (build emits `.vercel/output/`), Node.js 24.x, `DATABASE_URL` from the Neon Marketplace integration. Ignored Build Step `git diff --quiet HEAD^ HEAD -- apps/web/` skips poller-only commits.
 
 Use `db:migrate` (not `push`) in prod. No CI yet.
 
