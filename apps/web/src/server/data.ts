@@ -558,7 +558,9 @@ export async function fetchOverview(period: string): Promise<OverviewRes> {
           .slice(0, 10);
 
   // Una riga per corsa: ritardo finale + regione dell'ultimo rilevamento.
-  const perRun = (await database.execute(sql`
+  // NB: con il driver neon-http `db.execute()` restituisce
+  // FullQueryResults `{ rows: [...] }`, non un array diretto.
+  const rawPerRun = (await database.execute(sql`
     SELECT r.last_delay AS "lastDelay",
            COALESCE(sl.region_id, so.region_id) AS "regionId",
            COALESCE(sl.code, so.code) AS "stationCode"
@@ -574,11 +576,20 @@ export async function fetchOverview(period: string): Promise<OverviewRes> {
     ) sl ON true
     LEFT JOIN stations so ON so.code = r.origine_code
     ${sinceDate ? sql`WHERE r.data_partenza >= ${sinceDate}` : sql``}
-  `)) as unknown as Array<{
-    lastDelay: number | null;
-    regionId: number | null;
-    stationCode: string | null;
-  }>;
+  `)) as unknown as
+    | Array<{
+        lastDelay: number | null;
+        regionId: number | null;
+        stationCode: string | null;
+      }>
+    | {
+        rows: Array<{
+          lastDelay: number | null;
+          regionId: number | null;
+          stationCode: string | null;
+        }>;
+      };
+  const perRun = Array.isArray(rawPerRun) ? rawPerRun : (rawPerRun.rows ?? []);
 
   const byRegion = new Map<
     string,

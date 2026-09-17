@@ -7,7 +7,7 @@ export default function Nav() {
     <header class="border-b border-zinc-200 dark:border-zinc-800">
       <div class="mx-auto flex max-w-5xl items-center gap-4 px-4 py-3">
         <A href="/" class="text-sm font-bold tracking-tight">
-          train-monitor<span class="text-zinc-500">_v2</span>
+          train-monitor
         </A>
         <nav class="flex items-center gap-3 text-xs uppercase tracking-widest text-zinc-500">
           <A href="/ritardi" end activeClass="text-zinc-900 dark:text-zinc-100">
