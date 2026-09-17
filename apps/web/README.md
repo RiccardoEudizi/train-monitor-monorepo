@@ -45,11 +45,11 @@ Only `DATABASE_URL` (server-only, never `VITE_*`):
 DATABASE_URL=postgresql://user:password@localhost:5432/train_monitor_v2
 ```
 
-Loading order: `vite.config.ts` preloads `.env` for dev SSR, `drizzle.config.ts` for CLI, `src/server/db.ts` walks `../../.env` + `cwd/.env` as fallback. Nitro loads `.env` itself in prod.
+Loading order: `vite.config.ts` preloads `apps/web/.env` for dev SSR, `drizzle.config.ts` for CLI, `src/server/db.ts` walks `apps/web/.env` → repo-root `.env` → `cwd/.env` as fallback. Nitro loads `.env` itself in prod.
 
 ## Poller contract
 
-Live data is written by the Go poller (`../train-monitor-poller`): `stations`, `train_runs`, `stops`, `stop_snapshots`, `daily_stop_stats` (rollup), `info_news(kind=ticker|news|lavori|stats, payload=jsonb)`. No poller = degraded mode (below). Seed target list: `src/lib/stations-seed.ts` (85 Tier-1 majors).
+Live data is written by the Go poller (`../../services/poller`): `stations`, `train_runs`, `stops`, `stop_snapshots`, `daily_stop_stats` (rollup), `info_news(kind=ticker|news|lavori|stats, payload=jsonb)`. No poller = degraded mode (below). Seed target list: `src/lib/stations-seed.ts` (85 Tier-1 majors).
 
 ## Architecture
 

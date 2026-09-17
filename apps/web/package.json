@@ -1,5 +1,5 @@
 {
-  "name": "train-monitor-v2",
+  "name": "web",
   "type": "module",
   "private": true,
   "scripts": {

@@ -1,0 +1,23 @@
+{
+  "name": "train-monitor-monorepo",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "start": "pnpm --filter web start",
+    "preview": "pnpm --filter web preview",
+    "db:generate": "pnpm --filter web db:generate",
+    "db:migrate": "pnpm --filter web db:migrate",
+    "db:push": "pnpm --filter web db:push",
+    "db:studio": "pnpm --filter web db:studio",
+    "poller:run": "sh -c 'cd services/poller && go run ./cmd/poller'",
+    "poller:seed": "sh -c 'cd services/poller && go run ./cmd/seed'",
+    "poller:vet": "sh -c 'cd services/poller && go vet ./...'",
+    "poller:build": "sh -c 'cd services/poller && go build -o ../../bin/poller ./cmd/poller'"
+  }
+}

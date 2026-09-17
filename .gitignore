@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Builds
+dist/
+.output/
+apps/web/.output/
+bin/
+
+# Env (real secrets — never commit; see .env.example)
+.env
+.env*.local
+
+# Go
+*.exe
+*.test
+*.out
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+*.launch
+.settings/
+
+# System files
+.DS_Store
+Thumbs.db
