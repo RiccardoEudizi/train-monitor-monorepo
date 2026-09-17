@@ -1,8 +1,8 @@
-import { drizzle } from "drizzle-orm/postgres-js";
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
 import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import postgres from "postgres";
 import * as schema from "~/db/schema";
 
 // Load .env as fallback for contexts where the framework didn't already do
@@ -40,15 +40,14 @@ export function dbConfigured(): boolean {
 }
 
 /**
- * Lazily create the DB client. Returns null when DATABASE_URL is not set
- * so API routes can degrade gracefully (empty state + dbConfigured:false)
- * until you provision Postgres.
+ * Lazily create the DB client. HTTP driver (no TCP pooling, serverless-safe).
+ * Returns null when DATABASE_URL is not set so API routes can degrade
+ * gracefully (empty state + dbConfigured:false) until you provision Postgres.
  */
 export function db() {
   if (!process.env.DATABASE_URL) return null;
   if (!_db) {
-    const client = postgres(process.env.DATABASE_URL, { max: 10 });
-    _db = drizzle(client, { schema });
+    _db = drizzle({ client: neon(process.env.DATABASE_URL), schema });
   }
   return _db;
 }
