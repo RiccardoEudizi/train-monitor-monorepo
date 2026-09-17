@@ -10,14 +10,13 @@ Data flow: `ViaggiaTreno → Go poller → Postgres → SolidStart`. The app nev
 |---|---|
 | `apps/web/` | SolidStart app (ex `train-monitor-v2` history, rewritten under `apps/web` via `git filter-repo --to-subdirectory-filter apps/web`) |
 | `services/poller/` | Go ingester: polls ViaggiaTreno, writes Postgres (no prior git history; added as one commit) |
-| `docker-compose.yml` | Local Postgres for dev |
 | `.env.example` | Combined env template (`DATABASE_URL` + poller vars) |
 
 ## Prerequisites
 
 - Node >=24, pnpm 10.13.1
 - Go >=1.24 (poller only)
-- Postgres (`DATABASE_URL`, or `docker compose up db`)
+- Postgres (`DATABASE_URL`)
 
 ## Setup
 
