@@ -367,6 +367,7 @@ const emptyStats: PeriodStats = {
   delayedCount: 0,
   delayedRate: 0,
   totalDelay: 0,
+  worstTrain: null,
   series: [],
 };
 
@@ -444,11 +445,140 @@ export async function fetchStats(
       d.n += 1;
       byDay.set(r.runDate, d);
     }
+    const maxFinal = maxes.length ? Math.max(...maxes) : 0;
+    let worstTrain: PeriodStats["worstTrain"] = null;
+    if (rows.length > 0) {
+      const worst = [...rows]
+        .filter((r) => (r.delayMax ?? 0) === maxFinal)
+        .sort(
+          (a, b) =>
+            b.runDate.localeCompare(a.runDate) ||
+            (b.delayArrFinal ?? 0) - (a.delayArrFinal ?? 0),
+        )[0];
+      if (worst) {
+        const worstDelay = worst.delayMax ?? 0;
+        try {
+          const runRows = await database
+            .select()
+            .from(trainRuns)
+            .where(
+              and(
+                eq(trainRuns.numero, worst.numero),
+                eq(trainRuns.dataPartenza, worst.runDate),
+              ),
+            )
+            .limit(5);
+          let run = runRows[0];
+          let stopRow = null;
+          if (runRows.length > 0) {
+            const runIds = runRows.map((r) => r.id);
+            const stopRows = await database
+              .select()
+              .from(stops)
+              .where(
+                and(
+                  inArray(stops.runId, runIds),
+                  eq(stops.stationCode, id),
+                ),
+              );
+            const match = stopRows[0];
+            if (match) {
+              stopRow = match;
+              run = runRows.find((r) => r.id === match.runId) ?? run;
+            } else {
+              const [single] = await database
+                .select()
+                .from(stops)
+                .where(
+                  and(
+                    eq(stops.runId, run.id),
+                    eq(stops.stationCode, id),
+                  ),
+                )
+                .limit(1);
+              stopRow = single ?? null;
+            }
+          }
+          if (run) {
+            const isOrigin = stopRow?.tipoFermata === "P";
+            const scheduled =
+              (isOrigin ? stopRow?.programmataDep : stopRow?.programmataArr)?.toISOString() ??
+              run.orarioPartenza?.toISOString() ??
+              null;
+            const expected =
+              (isOrigin ? stopRow?.actualDep : stopRow?.actualArr)?.toISOString() ??
+              scheduled;
+            worstTrain = {
+              runId: run.id,
+              numero: run.numero,
+              categoria: run.categoria ?? "",
+              origine: run.origine ?? "",
+              destinazione: run.destinazione ?? "",
+              dataPartenza: run.dataPartenza,
+              scheduled,
+              expected,
+              delay: worstDelay,
+              binarioProg: stopRow?.binarioProg ?? null,
+              binarioReal: stopRow?.binarioReal ?? null,
+              stato: statoFor(worstDelay, run.provvedimento ?? (worst.cancelled ? 1 : 0)),
+              temporalStatus: "ended",
+              orarioPartenza: run.orarioPartenza?.toISOString() ?? null,
+              orarioArrivo: run.orarioArrivo?.toISOString() ?? null,
+              lastRilevamento: run.lastRilevamentoAt?.toISOString() ?? null,
+              lastRilevamentoStazione: run.lastRilevamentoStazione,
+              runDate: worst.runDate,
+            };
+          } else {
+            worstTrain = {
+              runId: null,
+              numero: worst.numero,
+              categoria: "",
+              origine: "",
+              destinazione: "",
+              dataPartenza: worst.runDate,
+              scheduled: null,
+              expected: null,
+              delay: worstDelay,
+              binarioProg: null,
+              binarioReal: null,
+              stato: statoFor(worstDelay, worst.cancelled ? 1 : 0),
+              temporalStatus: "ended",
+              orarioPartenza: null,
+              orarioArrivo: null,
+              lastRilevamento: null,
+              lastRilevamentoStazione: null,
+              runDate: worst.runDate,
+            };
+          }
+        } catch {
+          worstTrain = {
+            runId: null,
+            numero: worst.numero,
+            categoria: "",
+            origine: "",
+            destinazione: "",
+            dataPartenza: worst.runDate,
+            scheduled: null,
+            expected: null,
+            delay: worstDelay,
+            binarioProg: null,
+            binarioReal: null,
+            stato: statoFor(worstDelay, worst.cancelled ? 1 : 0),
+            temporalStatus: "ended",
+            orarioPartenza: null,
+            orarioArrivo: null,
+            lastRilevamento: null,
+            lastRilevamentoStazione: null,
+            runDate: worst.runDate,
+          };
+        }
+      }
+    }
     return {
       runs: rows.length,
       avgFinal: avg(finals),
       p95Final: percentile(finals, 95),
-      maxFinal: maxes.length ? Math.max(...maxes) : 0,
+      maxFinal,
       avgMaxEnroute: 0,
       avgRecupero: 0,
       cancellRate: rows.length ? Math.round((cancelled / rows.length) * 1000) / 10 : 0,
@@ -457,6 +587,7 @@ export async function fetchStats(
         ? Math.round((delayedCount / rows.length) * 1000) / 10
         : 0,
       totalDelay,
+      worstTrain,
       series: [...byDay.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([date, d]) => ({

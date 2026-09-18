@@ -18,11 +18,12 @@ import {
   SectionTitle,
   ShimmerList,
   Sparkline,
+  TrainRow,
   TrainStatus,
 } from "~/components/ui";
 import { AsciiFx, PixelValue } from "~/components/fx";
 import Seo from "~/components/Seo";
-import { fmtDateTime, fmtTime } from "~/lib/format";
+import { fmtDateEU, fmtDateTime, fmtTime } from "~/lib/format";
 import { getBoardQuery, getStatsQuery } from "~/lib/queries";
 import { pageTitle, SITE_NAME } from "~/lib/seo";
 import { useLive } from "~/lib/sse";
@@ -138,6 +139,16 @@ export default function Stazione() {
                   </PixelValue>
                 </p>
               </div>
+              <Show when={stats()?.worstTrain}>
+                {(w) => (
+                  <div class="mt-3 flex flex-col gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-900">
+                    <p class="text-xs text-zinc-500">
+                      peggio 30d · {fmtDateEU(w().runDate)}
+                    </p>
+                    <TrainRow t={w()} />
+                  </div>
+                )}
+              </Show>
             </Card>
           </Show>
         </Suspense>

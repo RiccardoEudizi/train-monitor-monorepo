@@ -81,6 +81,9 @@ export interface PeriodStats {
   delayedRate: number;
   /** Somma dei ritardi finali, in minuti. */
   totalDelay: number;
+  /** Corsa con il ritardo peggiore nel periodo (solo scope=station).
+   *  Stessa forma delle card ritardi (TrainRow): link a /treno/{numero}. */
+  worstTrain?: (TrainCard & { runDate: string }) | null;
   series: Array<{
     date: string;
     avgFinal: number;
