@@ -19,7 +19,7 @@ export default function App() {
             <Nav />
             <Suspense>{props.children}</Suspense>
             <footer class="mx-auto max-w-5xl px-4 py-8 text-[11px] text-zinc-500">
-              Dati ViaggiaTreno · aggiornati dal poller
+              Dati ViaggiaTreno
             </footer>
           </div>
         </MetaProvider>
