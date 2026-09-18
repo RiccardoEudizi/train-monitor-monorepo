@@ -121,7 +121,7 @@ export async function fetchBoard(code: string): Promise<BoardRes & { dbConfigure
     const expected =
       (isOrigin ? r.actualDep : r.actualArr)?.toISOString() ?? scheduled;
     const delayStato = statoFor(delay, r.provvedimento ?? 0);
-    const temporal = temporalStatus(r.orarioPartenza?.toISOString() ?? null, r.orarioArrivo?.toISOString() ?? null, now);
+    const temporal = temporalStatus(r.orarioPartenza?.toISOString() ?? null, r.orarioArrivo?.toISOString() ?? null, now, delay);
     return {
       runId: r.runId,
       numero: r.numero,
@@ -223,7 +223,7 @@ export async function fetchTrain(
 
   const delay = run.lastDelay ?? 0;
   const delayStato = statoFor(delay, run.provvedimento ?? 0);
-  const temporal = temporalStatus(run.orarioPartenza?.toISOString() ?? null, run.orarioArrivo?.toISOString() ?? null);
+  const temporal = temporalStatus(run.orarioPartenza?.toISOString() ?? null, run.orarioArrivo?.toISOString() ?? null, new Date(), delay);
   return {
     candidates: runs.map((r) => ({
       numero: r.numero,
@@ -295,6 +295,17 @@ export async function fetchDelays(
   if (normCats.length > 0) {
     conditions.push(inArray(trainRuns.categoria, normCats));
   }
+  // "ora" = waiting (departure within 50') or traveling now. Arrival is
+  // delay-shifted: a train scheduled at 10:00 with +60' is still traveling
+  // at 10:30. Without this, yesterday's ended runs (high last_delay) top
+  // the ranking forever — e.g. 9639 arrived yesterday with +202 while
+  // today's run still has to depart.
+  conditions.push(
+    sql`${trainRuns.orarioPartenza} <= NOW() + INTERVAL '50 minutes'`,
+  );
+  conditions.push(
+    sql`${trainRuns.orarioArrivo} + make_interval(mins => GREATEST(COALESCE(${trainRuns.lastDelay}, 0), 0)) > NOW()`,
+  );
   const rows = await database
     .select()
     .from(trainRuns)
@@ -320,7 +331,7 @@ export async function fetchDelays(
     totalCircolanti,
     items: rows.map((r) => {
       const delayStato = statoFor(r.lastDelay ?? 0, r.provvedimento ?? 0);
-      const temporal = temporalStatus(r.orarioPartenza?.toISOString() ?? null, r.orarioArrivo?.toISOString() ?? null);
+      const temporal = temporalStatus(r.orarioPartenza?.toISOString() ?? null, r.orarioArrivo?.toISOString() ?? null, new Date(), r.lastDelay ?? 0);
       return {
         runId: r.id,
         numero: r.numero,

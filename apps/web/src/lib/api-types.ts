@@ -157,28 +157,34 @@ export interface BoardRes {
 
 export type StatsPeriod = "1d" | "7d" | "30d" | "total";
 
-/** Compute temporal status from current time vs scheduled departure/arrival. */
+/** Compute temporal status from current time vs scheduled departure/arrival.
+ * `delayMins` shifts the effective arrival (a train scheduled to arrive at
+ * 10:00 with +60' is still traveling at 10:30, not "ended"). */
 export function temporalStatus(
   orarioPartenza: string | null,
   orarioArrivo: string | null,
-  now: Date = new Date()
+  now: Date = new Date(),
+  delayMins: number = 0,
 ): TrainTemporalStatus {
   if (!orarioPartenza || !orarioArrivo) return "unknown";
   
   const partenza = new Date(orarioPartenza).getTime();
   const arrivo = new Date(orarioArrivo).getTime();
+  if (!Number.isFinite(partenza) || !Number.isFinite(arrivo)) return "unknown";
+  const delay = Number.isFinite(delayMins) ? Math.max(0, delayMins) : 0;
+  const effArrivo = arrivo + delay * 60 * 1000;
   const nowMs = now.getTime();
   
   // Waiting: before departure but within 50 minutes
   if (nowMs < partenza && nowMs >= partenza - 50 * 60 * 1000) {
     return "waiting";
   }
-  // Traveling: between departure and arrival
-  if (nowMs >= partenza && nowMs < arrivo) {
+  // Traveling: between departure and effective (delay-shifted) arrival
+  if (nowMs >= partenza && nowMs < effArrivo) {
     return "traveling";
   }
-  // Ended: past scheduled arrival
-  if (nowMs >= arrivo) {
+  // Ended: past effective arrival
+  if (nowMs >= effArrivo) {
     return "ended";
   }
   // Before 50-minute window
