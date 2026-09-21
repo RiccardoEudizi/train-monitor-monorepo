@@ -5,7 +5,7 @@ import { canonicalUrl } from "~/lib/seo";
  * No lastmod: the response time isn't evidence that page content changed.
  */
 export function GET() {
-  const paths = ["/", "/ritardi", ...MAJOR_STATIONS.map((s) => `/stazione/${s.code}`)];
+  const paths = ["/", "/ritardi", "/map", ...MAJOR_STATIONS.map((s) => `/stazione/${s.code}`)];
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${paths.map((path) => `  <url><loc>${canonicalUrl(path)}</loc></url>`).join("\n")}

@@ -1,6 +1,7 @@
-import { A, createAsync, revalidate, useParams } from "@solidjs/router";
+import { A, createAsync, revalidate, useParams, useSearchParams } from "@solidjs/router";
+import { clientOnly } from "@solidjs/start";
 import type { RouteDefinition } from "@solidjs/router";
-import { createSignal, ErrorBoundary, For, Show, Suspense } from "solid-js";
+import { createMemo, createSignal, ErrorBoundary, For, Show, Suspense } from "solid-js";
 import {
   Card,
   Chip,
@@ -10,7 +11,6 @@ import {
   SectionTitle,
   Shimmer,
   ShimmerList,
-  Sparkline,
   TrainStatus,
 } from "~/components/ui";
 import { AsciiFx, PixelValue } from "~/components/fx";
@@ -19,6 +19,9 @@ import { delayClass, fmtDateEU, fmtTime } from "~/lib/format";
 import { getStatsQuery, getTrainQuery } from "~/lib/queries";
 import { pageTitle, SITE_NAME } from "~/lib/seo";
 import { useLive } from "~/lib/sse";
+
+// Client-only Chart.js chart (canvas needs DOM; see routes/index.tsx).
+const TrendChart = clientOnly(() => import("~/components/charts/TrendChart"));
 
 export const route = {
   preload: ({ params }: { params: Record<string, string | undefined> }) => {
@@ -34,17 +37,34 @@ type Period = "24h" | "7d" | "30d" | "all";
 
 export default function Treno() {
   const params = useParams();
+  const [search] = useSearchParams();
   const numero = () => (params.numero ?? "").trim();
+  const origine = () => ((search.origine as string | undefined) ?? "").trim().toUpperCase() || undefined;
+  const runDate = () => ((search.date as string | undefined) ?? "").trim() || undefined;
   const [period, setPeriod] = createSignal<Period>("30d");
   const statsPeriod = () => (period() === "all" ? "30d" : period());
 
-  const detail = createAsync(() => getTrainQuery(numero()), {
+  const detail = createAsync(() => getTrainQuery(numero(), origine(), runDate()), {
     deferStream: true,
   });
   const stats = createAsync(
     () => getStatsQuery("train", numero(), statsPeriod()),
     { deferStream: true },
   );
+
+  const periodDays = () =>
+    period() === "24h" ? 1 : period() === "7d" ? 7 : period() === "30d" ? 30 : null;
+
+  /** Latest runs filtered by the same time-period selector as the stats. */
+  const filteredRuns = createMemo(() => {
+    const all = detail()?.runs ?? [];
+    const days = periodDays();
+    if (days == null) return all;
+    const cutoff = new Date(Date.now() - days * 24 * 3600 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    return all.filter((r) => r.dataPartenza >= cutoff);
+  });
 
   useLive({
     url: () => `/api/live?train=${numero()}`,
@@ -88,13 +108,6 @@ export default function Treno() {
                   </p>
                 </>
               )}
-            </Show>
-            <Show when={(detail()?.candidates ?? []).length > 1}>
-              <p class="mt-2 text-xs text-zinc-500">
-                {(detail()?.candidates ?? [])
-                  .map((c) => `${c.origine} · ${fmtDateEU(c.dataPartenza)}`)
-                  .join("  ·  ")}
-              </p>
             </Show>
           </Suspense>
         </ErrorBoundary>
@@ -196,7 +209,12 @@ export default function Treno() {
                 <AsciiFx
                   watch={(stats()?.series ?? []).map((s) => s.avgFinal).join(",")}
                 >
-                  <Sparkline values={(stats()?.series ?? []).map((s) => s.avgFinal)} />
+                  <TrendChart
+                    values={(stats()?.series ?? []).map((s) => s.avgFinal)}
+                    labels={(stats()?.series ?? []).map((s) => s.date)}
+                    height={56}
+                    label={`storico ritardi treno ${numero()}`}
+                  />
                 </AsciiFx>
               </Suspense>
             </ErrorBoundary>
@@ -274,6 +292,83 @@ export default function Treno() {
                       </span>
                     </div>
                   )}
+                </For>
+              </div>
+            </Show>
+          </Suspense>
+        </ErrorBoundary>
+      </section>
+
+      {/* latest runs — same period filter as stats */}
+      <section class="mt-10">
+        <ErrorBoundary fallback={<></>}>
+          <Suspense fallback={<SectionTitle>ultime corse</SectionTitle>}>
+            <SectionTitle
+              right={
+                <>
+                  <PixelValue value={`${filteredRuns().length}`}>
+                    {filteredRuns().length}
+                  </PixelValue>{" "}
+                  corse · {period()}
+                </>
+              }
+            >
+              ultime corse · ritardo medio
+            </SectionTitle>
+          </Suspense>
+        </ErrorBoundary>
+        <ErrorBoundary fallback={<ErrorBox message="storico corse non disponibile" />}>
+          <Suspense fallback={<ShimmerList rows={6} />}>
+            <Show
+              when={filteredRuns().length > 0}
+              fallback={
+                <EmptyState>
+                  Nessuna corsa nel periodo selezionato.
+                </EmptyState>
+              }
+            >
+              <div class="flex flex-col gap-2">
+                <For each={filteredRuns()}>
+                  {(r) => {
+                    const selected = () => detail()?.live?.runId === r.runId;
+                    return (
+                      <A
+                        href={`/treno/${numero()}?origine=${encodeURIComponent(r.origineCode)}&date=${encodeURIComponent(r.dataPartenza)}`}
+                        class={`grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded border px-3 py-2 transition-colors ${selected() ? "border-zinc-500 dark:border-zinc-400" : "border-zinc-200 hover:border-zinc-400 dark:border-zinc-800 dark:hover:border-zinc-600"}`}
+                      >
+                        <span class="text-xs tabular-nums text-zinc-500">
+                          {fmtDateEU(r.dataPartenza)}
+                          <span class="ml-2">
+                            {fmtTime(r.orarioPartenza)}
+                            {r.orarioArrivo ? `–${fmtTime(r.orarioArrivo)}` : ""}
+                          </span>
+                        </span>
+                        <span class="truncate text-sm">
+                          {r.origine} → {r.destinazione}
+                          <Show when={selected()}>
+                            <span class="ml-2 text-[11px] uppercase text-zinc-500">
+                              selezionata
+                            </span>
+                          </Show>
+                          <Show when={r.stato === "cancelled"}>
+                            <span class="ml-2 text-[11px] uppercase text-red-400">
+                              cancellata
+                            </span>
+                          </Show>
+                        </span>
+                        <span class="text-right text-sm">
+                          <span class={`font-bold tabular-nums ${delayClass(r.avgDelay)}`}>
+                            <PixelValue value={r.avgDelay > 0 ? `+${r.avgDelay}'` : "ok"}>
+                              {r.avgDelay > 0 ? `+${r.avgDelay}'` : "ok"}
+                            </PixelValue>
+                          </span>
+                          <span class="ml-2 text-[11px] tabular-nums text-zinc-500">
+                            media · fin +{r.lastDelay}' · max +{r.maxDelay}'
+                          </span>
+                        </span>
+                      </A>
+                    );
+                  }}
                 </For>
               </div>
             </Show>

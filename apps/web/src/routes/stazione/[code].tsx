@@ -1,4 +1,5 @@
 import { A, createAsync, revalidate, useParams } from "@solidjs/router";
+import { clientOnly } from "@solidjs/start";
 import type { RouteDefinition } from "@solidjs/router";
 import {
   createMemo,
@@ -17,7 +18,6 @@ import {
   LiveDot,
   SectionTitle,
   ShimmerList,
-  Sparkline,
   TrainRow,
   TrainStatus,
 } from "~/components/ui";
@@ -27,6 +27,9 @@ import { fmtDateEU, fmtDateTime, fmtTime } from "~/lib/format";
 import { getBoardQuery, getStatsQuery } from "~/lib/queries";
 import { pageTitle, SITE_NAME } from "~/lib/seo";
 import { useLive } from "~/lib/sse";
+
+// Client-only Chart.js chart (canvas needs DOM; see routes/index.tsx).
+const TrendChart = clientOnly(() => import("~/components/charts/TrendChart"));
 
 export const route = {
   preload: ({ params }: { params: Record<string, string | undefined> }) => {
@@ -123,7 +126,12 @@ export default function Stazione() {
                 <AsciiFx
                   watch={(stats()?.series ?? []).map((s) => s.avgFinal).join(",")}
                 >
-                  <Sparkline values={(stats()?.series ?? []).map((s) => s.avgFinal)} />
+                  <TrendChart
+                    values={(stats()?.series ?? []).map((s) => s.avgFinal)}
+                    labels={(stats()?.series ?? []).map((s) => s.date)}
+                    height={56}
+                    label={`storico ritardi stazione ${code()}`}
+                  />
                 </AsciiFx>
                 <p class="ml-auto text-xs tabular-nums text-zinc-500">
                   <PixelValue value={`${stats()?.runs}`}>

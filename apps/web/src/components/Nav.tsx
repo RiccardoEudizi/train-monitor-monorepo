@@ -14,6 +14,10 @@ export default function Nav() {
             ritardi
           </A>
           <span class="text-zinc-300 dark:text-zinc-700">/</span>
+          <A href="/map" end activeClass="text-zinc-900 dark:text-zinc-100">
+            mappa
+          </A>
+          <span class="text-zinc-300 dark:text-zinc-700">/</span>
           <span class="hidden sm:inline">live</span>
         </nav>
         <div class="ml-auto flex items-center gap-2">

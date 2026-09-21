@@ -1,4 +1,5 @@
 import { A, createAsync, revalidate } from "@solidjs/router";
+import { clientOnly } from "@solidjs/start";
 import type { RouteDefinition } from "@solidjs/router";
 import {
   createEffect,
@@ -11,9 +12,6 @@ import {
   Suspense,
 } from "solid-js";
 import {
-  AsciiGauge,
-  AsciiHBars,
-  AsciiTrend,
   Card,
   Chip,
   EmptyState,
@@ -31,6 +29,12 @@ import type { StationItem, StatsPeriod } from "~/lib/api-types";
 import { getDelaysQuery, getNewsQuery, getOverviewQuery } from "~/lib/queries";
 import { pageTitle, SITE_DESCRIPTION } from "~/lib/seo";
 import { useLive } from "~/lib/sse";
+
+// Chart.js charts are client-only (canvas needs DOM). `clientOnly` keeps
+// them out of the SSR graph; no fallback to avoid content flashing.
+const TrendChart = clientOnly(() => import("~/components/charts/TrendChart"));
+const RegionBars = clientOnly(() => import("~/components/charts/RegionBars"));
+const DelayGauge = clientOnly(() => import("~/components/charts/DelayGauge"));
 
 export const route = {
   preload: () =>
@@ -288,11 +292,14 @@ export default function Home() {
                         .map((s) => s.avgFinal)
                         .join(",")}
                     >
-                      <AsciiTrend
+                      <TrendChart
                         values={(overview.latest?.national.series ?? []).map(
                           (s) => s.avgFinal,
                         )}
-                        height={isDesktop() ? 7 : 4}
+                        labels={(overview.latest?.national.series ?? []).map(
+                          (s) => s.date,
+                        )}
+                        height={isDesktop() ? 96 : 72}
                         label="trend media giornaliera ritardi"
                       />
                     </AsciiFx>
@@ -387,7 +394,7 @@ export default function Home() {
                     <AsciiFx
                       watch={`${overview.latest?.national.delayedRate ?? 0}`}
                     >
-                      <AsciiGauge
+                      <DelayGauge
                         pct={overview.latest?.national.delayedRate ?? 0}
                       />
                     </AsciiFx>
@@ -414,7 +421,7 @@ export default function Home() {
                 <p class="mb-2 text-[11px] uppercase tracking-widest text-zinc-500">
                   top regioni per ritardo cumulato
                 </p>
-                <AsciiHBars
+                <RegionBars
                   rows={(overview.latest?.regions ?? []).map((r) => ({
                     label: r.name,
                     value: r.totalDelay,

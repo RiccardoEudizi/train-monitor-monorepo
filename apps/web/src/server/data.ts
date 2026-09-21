@@ -176,6 +176,7 @@ export async function fetchTrain(
 ): Promise<TrainDetail & { dbConfigured: boolean }> {
   const empty: TrainDetail & { dbConfigured: boolean } = {
     candidates: [],
+    runs: [],
     live: null,
     stops: [],
     dbConfigured: dbConfigured(),
@@ -188,7 +189,7 @@ export async function fetchTrain(
     .from(trainRuns)
     .where(eq(trainRuns.numero, n))
     .orderBy(desc(trainRuns.dataPartenza))
-    .limit(10);
+    .limit(60);
 
   if (runs.length === 0) {
     return { ...empty, dbConfigured: true };
@@ -224,6 +225,58 @@ export async function fetchTrain(
   const delay = run.lastDelay ?? 0;
   const delayStato = statoFor(delay, run.provvedimento ?? 0);
   const temporal = temporalStatus(run.orarioPartenza?.toISOString() ?? null, run.orarioArrivo?.toISOString() ?? null, new Date(), delay);
+
+  // Per-run delay summary over all recent runs (single extra query).
+  // avgDelay = mean of max(delayArr, delayDep) across stops with actual
+  // data; falls back to 0 when the run has no actuals yet.
+  const runIds = runs.map((r) => r.id);
+  const allStops =
+    runIds.length > 0
+      ? await database
+          .select({
+            runId: stops.runId,
+            delayArr: stops.delayArr,
+            delayDep: stops.delayDep,
+            actualArr: stops.actualArr,
+            actualDep: stops.actualDep,
+          })
+          .from(stops)
+          .where(inArray(stops.runId, runIds))
+      : [];
+  const delaysByRun = new Map<number, number[]>();
+  const countByRun = new Map<number, number>();
+  for (const s of allStops) {
+    countByRun.set(s.runId, (countByRun.get(s.runId) ?? 0) + 1);
+    if (s.actualArr != null || s.actualDep != null) {
+      const d = Math.max(s.delayArr ?? 0, s.delayDep ?? 0);
+      const arr = delaysByRun.get(s.runId) ?? [];
+      arr.push(d);
+      delaysByRun.set(s.runId, arr);
+    }
+  }
+  const runSummaries = runs.map((r) => {
+    const vals = delaysByRun.get(r.id) ?? [];
+    const avgDelay =
+      vals.length > 0
+        ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10
+        : 0;
+    return {
+      runId: r.id,
+      origine: r.origine ?? "",
+      origineCode: r.origineCode,
+      destinazione: r.destinazione ?? "",
+      dataPartenza: r.dataPartenza,
+      orarioPartenza: r.orarioPartenza?.toISOString() ?? null,
+      orarioArrivo: r.orarioArrivo?.toISOString() ?? null,
+      avgDelay,
+      lastDelay: r.lastDelay ?? 0,
+      maxDelay: r.maxDelay ?? r.lastDelay ?? 0,
+      stops: countByRun.get(r.id) ?? 0,
+      provvedimento: r.provvedimento ?? 0,
+      stato: statoFor(r.lastDelay ?? 0, r.provvedimento ?? 0),
+    };
+  });
+
   return {
     candidates: runs.map((r) => ({
       numero: r.numero,
@@ -231,6 +284,7 @@ export async function fetchTrain(
       origineCode: r.origineCode,
       dataPartenza: r.dataPartenza,
     })),
+    runs: runSummaries,
     live: {
       runId: run.id,
       numero: run.numero,
@@ -299,12 +353,13 @@ export async function fetchDelays(
   // delay-shifted: a train scheduled at 10:00 with +60' is still traveling
   // at 10:30. Without this, yesterday's ended runs (high last_delay) top
   // the ranking forever — e.g. 9639 arrived yesterday with +202 while
-  // today's run still has to depart.
+  // today's run still has to depart. A 3' trailing grace keeps just-ended
+  // trains visible while the poller writes the final snapshot.
   conditions.push(
     sql`${trainRuns.orarioPartenza} <= NOW() + INTERVAL '50 minutes'`,
   );
   conditions.push(
-    sql`${trainRuns.orarioArrivo} + make_interval(mins => GREATEST(COALESCE(${trainRuns.lastDelay}, 0), 0)) > NOW()`,
+    sql`${trainRuns.orarioArrivo} + make_interval(mins => GREATEST(COALESCE(${trainRuns.lastDelay}, 0), 0)) > NOW() - INTERVAL '3 minutes'`,
   );
   const rows = await database
     .select()

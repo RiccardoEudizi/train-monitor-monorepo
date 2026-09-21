@@ -1,4 +1,5 @@
 import { getRequestEvent } from "solid-js/web";
+import { createSignal, onCleanup, onMount } from "solid-js";
 
 /**
  * Theme preference, persisted in a cookie so SSR can render the correct
@@ -47,4 +48,23 @@ export function getInitialDark(): boolean {
 export function setThemeCookie(dark: boolean) {
   if (typeof document === "undefined") return;
   document.cookie = `${THEME_COOKIE}=${dark ? "dark" : "light"}; path=/; max-age=${MAX_AGE}; SameSite=Lax`;
+}
+
+/**
+ * Reactive dark-mode flag. SSR-safe: initial value comes from
+ * `getInitialDark()` (same value SSR used for `<html class>`), then a
+ * `MutationObserver` picks up toggles. For canvas/WebGL code that can't
+ * use Tailwind `dark:` variants.
+ */
+export function useDark() {
+  const [dark, setDark] = createSignal(getInitialDark());
+  onMount(() => {
+    const el = document.documentElement;
+    const sync = () => setDark(el.classList.contains("dark"));
+    sync();
+    const mo = new MutationObserver(sync);
+    mo.observe(el, { attributes: true, attributeFilter: ["class"] });
+    onCleanup(() => mo.disconnect());
+  });
+  return dark;
 }

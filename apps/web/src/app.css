@@ -176,7 +176,8 @@ body {
   .fx-ascii-enter,
   .palette-overlay,
   .palette-content {
-    animation: none;
+    animation: none !important;
+    transition: none !important;
   }
 }
 

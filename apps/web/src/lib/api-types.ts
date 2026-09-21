@@ -61,8 +61,29 @@ export interface TrainCandidate {
   dataPartenza: string;
 }
 
+/** One historical run of a train number, with per-run delay summary.
+ * `avgDelay` = mean of max(delayArr, delayDep) across stops with actual
+ * data (0 when no actual yet); `lastDelay`/`maxDelay` mirror train_runs. */
+export interface TrainRunSummary {
+  runId: number;
+  origine: string;
+  origineCode: string;
+  destinazione: string;
+  dataPartenza: string;
+  orarioPartenza: string | null;
+  orarioArrivo: string | null;
+  avgDelay: number;
+  lastDelay: number;
+  maxDelay: number;
+  stops: number;
+  provvedimento: number;
+  stato: TrainStato;
+}
+
 export interface TrainDetail {
   candidates: TrainCandidate[];
+  /** Latest runs, newest first (up to 60), with per-run delay summary. */
+  runs: TrainRunSummary[];
   live: TrainCard | null;
   stops: StopRow[];
 }
@@ -122,11 +143,15 @@ export interface StationItem {
   major: boolean;
 }
 
+/** Single app-wide rule: delay >= 1' is ritardo, anything below is ok.
+ * Heavy threshold stays at 15'. Used for badges, map dots/legend,
+ * statuses and counts — homepage query (gte 1), DELAY_THRESHOLD counts
+ * (> 0) and fmtDelay (<= 0 → "in orario") already agree with this. */
 export function statoFor(delay: number, provvedimento: number): TrainStato {
   if (provvedimento === 1) return "cancelled";
   if (provvedimento === 2) return "partial";
   if (delay >= 15) return "heavily-delayed";
-  if (delay >= 5) return "delayed";
+  if (delay >= 1) return "delayed";
   return "ok";
 }
 

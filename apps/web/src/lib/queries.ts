@@ -45,3 +45,9 @@ export const getOverviewQuery = query(async (period: string) => {
   const { fetchOverview } = await import("~/server/data");
   return fetchOverview(period);
 }, "overview");
+
+export const getMapRegionsQuery = query(async (period: string) => {
+  "use server";
+  const { fetchMapRegions } = await import("~/server/map-data");
+  return fetchMapRegions(period);
+}, "map-regions");

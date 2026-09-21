@@ -4,7 +4,7 @@ import type { TrainCard, TrainStato, TrainTemporalStatus } from "~/lib/api-types
 import { delayClass, fmtDelay, fmtTime } from "~/lib/format";
 import { displayStatus } from "~/lib/api-types";
 import { getInitialDark, setThemeCookie } from "~/lib/theme";
-import { AsciiFx, PixelValue } from "./fx";
+import { PixelValue } from "./fx";
 
 const BRAILLE = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -88,35 +88,49 @@ export function ThemeToggle() {
   return (
     <button
       onClick={() => setDark((d) => !d)}
-      class="rounded border border-zinc-300 px-2 py-1 text-xs uppercase tracking-widest text-zinc-500 hover:text-zinc-900 dark:border-zinc-800 dark:hover:text-zinc-100"
-      title="toggle theme"
-      aria-label="toggle theme"
+      class="grid size-8 place-items-center rounded border border-zinc-300 text-zinc-500 transition-colors hover:text-zinc-900 dark:border-zinc-800 dark:hover:text-zinc-100"
+      title={dark() ? "Switch to light theme" : "Switch to dark theme"}
+      aria-label={dark() ? "Switch to light theme" : "Switch to dark theme"}
       aria-pressed={dark()}
     >
-      {dark() ? "light" : "dark"}
+      {dark() ? (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="size-4"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2" />
+          <path d="M12 20v2" />
+          <path d="m4.93 4.93 1.41 1.41" />
+          <path d="m17.66 17.66 1.41 1.41" />
+          <path d="M2 12h2" />
+          <path d="M20 12h2" />
+          <path d="m6.34 17.66-1.41 1.41" />
+          <path d="m19.07 4.93-1.41 1.41" />
+        </svg>
+      ) : (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="size-4"
+          aria-hidden="true"
+        >
+          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+        </svg>
+      )}
     </button>
-  );
-}
-
-/** Minimal SVG sparkline for stats series. */
-export function Sparkline(props: { values: number[]; width?: number; height?: number }) {
-  const w = () => props.width ?? 160;
-  const h = () => props.height ?? 36;
-  const path = () => {
-    const v = props.values;
-    if (v.length < 2) return "";
-    const max = Math.max(...v, 1);
-    const min = Math.min(...v, 0);
-    const span = max - min || 1;
-    const step = w() / (v.length - 1);
-    return v
-      .map((x, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${(h() - 4 - ((x - min) / span) * (h() - 8)).toFixed(1)}`)
-      .join(" ");
-  };
-  return (
-    <svg width={w()} height={h()} class="overflow-visible">
-      <path d={path()} fill="none" stroke="currentColor" stroke-width="1.5" class="text-zinc-400 dark:text-zinc-500" />
-    </svg>
   );
 }
 
@@ -237,121 +251,5 @@ export function Field(props: {
       aria-label={props.label}
       class={`w-full rounded border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 ${props.inputmode === "numeric" ? "tabular-nums " : ""}${props.class ?? ""}`}
     />
-  );
-}
-
-/** Vertical ASCII bar chart (pure, SSR-safe) for daily delay series.
- * One column per day, `█` blocks scaled to the max. */
-export function AsciiTrend(props: {
-  values: number[];
-  height?: number;
-  label?: string;
-}) {
-  const h = () => props.height ?? 7;
-  const vals = () => props.values.slice(-31);
-  const max = () => Math.max(0, ...vals());
-  const rows = () => {
-    const v = vals();
-    const m = max();
-    const out: string[] = [];
-    for (let r = h(); r >= 1; r--) {
-      out.push(
-        v
-          .map((x) => (m <= 0 ? " " : x / m >= r / h() ? "█" : " "))
-          .join(""),
-      );
-    }
-    return out;
-  };
-  return (
-    <Show
-      when={vals().length > 0 && max() > 0}
-      fallback={
-        <p class="text-[11px] text-zinc-500">
-          — nessun ritardo nel periodo
-        </p>
-      }
-    >
-      <pre
-        role="img"
-        aria-label={props.label ?? `trend ritardi, max +${max()}`}
-        class="overflow-x-auto text-[11px] leading-[1.3] tracking-[0.1em] text-zinc-600 tabular-nums dark:text-zinc-400"
-      >
-        {rows().join("\n")}
-      </pre>
-    </Show>
-  );
-}
-
-/** Horizontal ASCII bars (pure, SSR-safe), e.g. top regioni per cumulato. */
-export function AsciiHBars(props: {
-  rows: Array<{ label: string; value: number; suffix?: string }>;
-  width?: number;
-}) {
-  const w = () => props.width ?? 14;
-  const max = () => Math.max(1, ...props.rows.map((r) => r.value));
-  return (
-    <Show
-      when={props.rows.length > 0}
-      fallback={
-        <p class="text-[11px] text-zinc-500">— nessun dato nel periodo</p>
-      }
-    >
-      <pre
-        role="img"
-        aria-label="barre orizzontali"
-        class="overflow-x-auto text-[11px] leading-[1.6] tabular-nums"
-      >
-        <For each={props.rows}>
-          {(r, i) => {
-            const filled = Math.round((r.value / max()) * w());
-            const val = ` ${r.value}${r.suffix ?? ""}`;
-            return (
-              <AsciiFx
-                watch={`${r.label}:${r.value}`}
-                delayMs={Math.min(i() * 45, 315)}
-              >
-                <div>
-                  <span class="text-zinc-500">
-                    {(r.label.length > 14
-                      ? r.label.slice(0, 13) + "·"
-                      : r.label.padEnd(14, " ")) + " "}
-                  </span>
-                  <span class="text-amber-500">
-                    {"█".repeat(filled)}
-                  </span>
-                  <span class="text-zinc-300 dark:text-zinc-700">
-                    {"░".repeat(Math.max(0, w() - filled))}
-                  </span>
-                  <span class="text-zinc-600 dark:text-zinc-400">
-                    <PixelValue value={val}>{val}</PixelValue>
-                  </span>
-                </div>
-              </AsciiFx>
-            );
-          }}
-        </For>
-      </pre>
-    </Show>
-  );
-}
-
-/** ASCII gauge bar for a 0-100 percentage (pure, SSR-safe). */
-export function AsciiGauge(props: { pct: number; width?: number }) {
-  const w = () => props.width ?? 20;
-  const pct = () => Math.max(0, Math.min(100, props.pct));
-  const filled = () => Math.round((pct() / 100) * w());
-  return (
-    <pre
-      role="img"
-      aria-label={`${pct()} percento`}
-      class="overflow-x-auto text-[11px] leading-[1.3] tabular-nums"
-    >
-      <span class="text-emerald-500">{"█".repeat(filled())}</span>
-      <span class="text-zinc-300 dark:text-zinc-700">
-        {"░".repeat(Math.max(0, w() - filled()))}
-      </span>
-      <span class="text-zinc-600 dark:text-zinc-400">{` ${pct()}%`}</span>
-    </pre>
   );
 }
