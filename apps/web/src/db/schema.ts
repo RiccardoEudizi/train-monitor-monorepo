@@ -110,39 +110,9 @@ export const stops = pgTable(
 );
 
 /**
- * Append-only raw history: one row per (run, station) per poll cycle.
- * This replaces v1's `delays` table. Aggregates are computed over
- * train_runs (final/max delay), never by averaging these rows directly.
- */
-export const stopSnapshots = pgTable(
-  "stop_snapshots",
-  {
-    id: serial("id").primaryKey(),
-    runId: integer("run_id")
-      .notNull()
-      .references(() => trainRuns.id, { onDelete: "cascade" }),
-    stationCode: text("station_code").notNull(),
-    delayArr: integer("delay_arr").notNull().default(0),
-    delayDep: integer("delay_dep").notNull().default(0),
-    stato: text("stato").notNull().default("ok"),
-    rilevatoAt: timestamp("rilevato_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => [
-    index("snapshots_run_station_time_idx").on(
-      t.runId,
-      t.stationCode,
-      t.rilevatoAt,
-    ),
-    index("snapshots_station_time_idx").on(t.stationCode, t.rilevatoAt),
-    index("snapshots_rilevato_idx").on(t.rilevatoAt),
-  ],
-);
-
-/**
- * Rolled-up daily per-stop stats for charts older than raw retention.
- * Written by a Go rollup job (or SQL cron) from stop_snapshots.
+ * Rolled-up daily per-stop stats for charts. Written by the poller rollup
+ * from the current `stops` truth (converges to end-of-day); kept forever.
+ * `samples` is legacy (always 1 since stop_snapshots removal) and unread.
  */
 export const dailyStopStats = pgTable(
   "daily_stop_stats",

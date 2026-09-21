@@ -1,7 +1,7 @@
 /**
- * Train movement from live snapshots.
+ * Train movement from live polls.
  *
- * The poller writes a snapshot every ~120s (`stops` = current truth).
+ * The poller upserts `stops` (current truth) every ~120s.
  * Between snapshots the client has only two anchors per train:
  *   prev — last stop with a real rilevamento (or origin departure)
  *   next — first upcoming stop (scheduled time)
@@ -68,7 +68,7 @@ export function trainPosition(train: LiveTrain, nowMs: number): TrainPos {
   };
 }
 
-/** Per-frame easing toward the snapshot target (frame-rate independent). */
+/** Per-frame easing toward the target (frame-rate independent). */
 export function easeToward(
   current: number,
   target: number,

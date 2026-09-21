@@ -1,5 +1,6 @@
--- Mirrors train-monitor-v2/src/db/schema.ts (drizzle is source of truth for the app).
--- The poller is a dumb ingester: upsert train_runs/stops, append stop_snapshots.
+-- Mirrors apps/web/src/db/schema.ts.
+-- The poller is a dumb ingester: upsert train_runs/stops (current truth),
+-- roll up daily_stop_stats (kept forever), prune train_runs older than 30d.
 
 CREATE TABLE IF NOT EXISTS stations (
   id SERIAL PRIMARY KEY,
@@ -57,20 +58,6 @@ CREATE TABLE IF NOT EXISTS stops (
   UNIQUE (run_id, station_code)
 );
 CREATE INDEX IF NOT EXISTS stops_station_idx ON stops (station_code);
-
-CREATE TABLE IF NOT EXISTS stop_snapshots (
-  id SERIAL PRIMARY KEY,
-  run_id INTEGER NOT NULL REFERENCES train_runs (id) ON DELETE CASCADE,
-  station_code TEXT NOT NULL,
-  delay_arr INTEGER NOT NULL DEFAULT 0,
-  delay_dep INTEGER NOT NULL DEFAULT 0,
-  stato TEXT NOT NULL DEFAULT 'ok',
-  rilevato_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS snapshots_run_station_time_idx
-  ON stop_snapshots (run_id, station_code, rilevato_at);
-CREATE INDEX IF NOT EXISTS snapshots_station_time_idx
-  ON stop_snapshots (station_code, rilevato_at);
 
 CREATE TABLE IF NOT EXISTS daily_stop_stats (
   id SERIAL PRIMARY KEY,

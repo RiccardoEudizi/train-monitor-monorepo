@@ -30,8 +30,8 @@ pnpm db:push           # create tables (drizzle, dev)
 pnpm dev
 # --- poller (another shell) ---
 psql $DATABASE_URL -f services/poller/migrations/001_schema.sql
-psql $DATABASE_URL -f services/poller/migrations/002_snapshot_retention.sql
 psql $DATABASE_URL -f services/poller/migrations/004_majors.sql
+psql $DATABASE_URL -f services/poller/migrations/005_drop_snapshots.sql  # existing DBs only
 pnpm poller:seed       # all stations from elencoStazioni (never touches is_major)
 pnpm poller:run        # loop every POLL_INTERVAL_SECONDS (default 120)
 ```
@@ -65,7 +65,7 @@ Web lookup order: `apps/web/.env`, then repo-root `.env`, then launcher CWD (`sr
 - **Mirror:** `apps/web/src/db/schema.ts` (Drizzle, read-only shapes for the app).
 - Rule: any table change = new `services/poller/migrations/00N_*.sql` + manual mirror update in `schema.ts`. Never let them drift.
 
-Tables: `stations`, `train_runs` (keyed by `(numero, origine_code, data_partenza)`), `stops` (current truth), `stop_snapshots` (append on change + heartbeat every 15th cycle, 14-day retention), `daily_stop_stats` (rollup, kept forever), `info_news(kind=ticker|news|lavori|stats, payload=jsonb)`.
+Tables: `stations`, `train_runs` (keyed by `(numero, origine_code, data_partenza)`, 30-day hot window), `stops` (current truth), `daily_stop_stats` (rollup, kept forever), `info_news(kind=ticker|news|lavori|stats, payload=jsonb)`.
 
 ## Deployment
 

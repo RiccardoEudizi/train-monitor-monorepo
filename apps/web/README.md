@@ -51,7 +51,7 @@ DB client: `@neondatabase/serverless` HTTP driver (`drizzle-orm/neon-http`, see 
 
 ## Poller contract
 
-Live data is written by the Go poller (`../../services/poller`): `stations`, `train_runs`, `stops`, `stop_snapshots`, `daily_stop_stats` (rollup), `info_news(kind=ticker|news|lavori|stats, payload=jsonb)`. No poller = degraded mode (below). Seed target list: `src/lib/stations-seed.ts` (85 Tier-1 majors).
+Live data is written by the Go poller (`../../services/poller`): `stations`, `train_runs` (30-day window), `stops`, `daily_stop_stats` (rollup, kept forever), `info_news(kind=ticker|news|lavori|stats, payload=jsonb)`. No poller = degraded mode (below). Seed target list: `src/lib/stations-seed.ts` (85 Tier-1 majors).
 
 ## Architecture
 
@@ -105,4 +105,4 @@ Use `db:migrate` (not `push`) in prod. No CI yet.
 
 ## Repo map
 
-`src/routes/api/*` adapters · `src/server/db.ts|data.ts` · `src/db/schema.ts` (6 tables) · `src/lib/queries|api-types|sse|format|regions|stations-seed` · `src/components/Nav|CommandPalette|ui|fx` · `drizzle.config.ts` (`out=./drizzle`, `dialect=postgresql`) · `public/favicon.ico`.
+`src/routes/api/*` adapters · `src/server/db.ts|data.ts` · `src/db/schema.ts` (5 tables) · `src/lib/queries|api-types|sse|format|regions|stations-seed` · `src/components/Nav|CommandPalette|ui|fx` · `drizzle.config.ts` (`out=./drizzle`, `dialect=postgresql`) · `public/favicon.ico`.

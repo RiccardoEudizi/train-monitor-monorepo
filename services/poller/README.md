@@ -13,13 +13,10 @@ Each cycle:
    → active train numbers.
 2. **Resolve** — `cercaNumeroTrenoTrenoAutocomplete` → `(numero, origine, midnight)`
    triple, latest only.
-3. **Store** — `andamentoTreno` → upsert `train_runs` + `stops` (current truth),
-   append `stop_snapshots` only when a stop's delays/status changed
-   (plus a full heartbeat write every 15th cycle, ~30 min at 2-min intervals,
-   so charts can tell "still +5" apart from "no data").
+3. **Store** — `andamentoTreno` → upsert `train_runs` + `stops` (current truth).
 4. **Rollup** — today's stops folded into `daily_stop_stats` (upserted, converges
-   to end-of-day truth); snapshots older than 14 days deleted
-   (`daily_stop_stats` kept forever).
+   to end-of-day truth, kept forever); `train_runs`/`stops` older than 30 days
+   deleted (cascades to `stops`).
 5. **Info** — `statistiche` + `infomobilitaTicker` → `info_news`
    (national counters + ticker items as `string[]`).
 
@@ -31,8 +28,8 @@ Each cycle:
 ```bash
 cp .env.example .env   # set DATABASE_URL
 psql $DATABASE_URL -f migrations/001_schema.sql
-psql $DATABASE_URL -f migrations/002_snapshot_retention.sql
 psql $DATABASE_URL -f migrations/004_majors.sql
+psql $DATABASE_URL -f migrations/005_drop_snapshots.sql  # existing DBs only
 go run ./cmd/seed      # all stations from elencoStazioni/0..22 (never touches is_major)
 go run ./cmd/poller    # loop every POLL_INTERVAL_SECONDS (default 120)
 ```
@@ -61,4 +58,4 @@ Env lookup: `services/poller/.env`, then the monorepo-root `.env` (a single root
 - `internal/vt` — minimal ViaggiaTreno client.
 - `internal/db` — pool + station queries.
 - `internal/env` — `.env` loader + typed getters.
-- `migrations/` — schema, retention index, majors list.
+- `migrations/` — schema, majors list, snapshot-removal + retention prune.

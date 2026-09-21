@@ -511,7 +511,7 @@ export default function Home() {
               when={(delays()?.items ?? []).length > 0}
               fallback={
                 <EmptyState>
-                  Nessun ritardo sopra 1 min al momento — o DB non ancora popolato.
+                  Nessun ritardo sopra 1 min al momento.
                 </EmptyState>
               }
             >
