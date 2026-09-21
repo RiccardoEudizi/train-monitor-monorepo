@@ -79,6 +79,8 @@ CREATE TABLE IF NOT EXISTS daily_train_stats (
   run_date DATE NOT NULL,
   numero TEXT NOT NULL,
   origine_code TEXT NOT NULL,
+  origine TEXT,
+  destinazione TEXT,
   last_delay INTEGER NOT NULL DEFAULT 0,
   max_delay INTEGER NOT NULL DEFAULT 0,
   provvedimento INTEGER NOT NULL DEFAULT 0,

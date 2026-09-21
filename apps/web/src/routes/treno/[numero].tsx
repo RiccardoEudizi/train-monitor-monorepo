@@ -42,7 +42,8 @@ export default function Treno() {
   const origine = () => ((search.origine as string | undefined) ?? "").trim().toUpperCase() || undefined;
   const runDate = () => ((search.date as string | undefined) ?? "").trim() || undefined;
   const [period, setPeriod] = createSignal<Period>("30d");
-  const statsPeriod = () => (period() === "all" ? "30d" : period());
+  // "all" goes to the server as-is: train stats read the all-time rollup.
+  const statsPeriod = () => period();
 
   const detail = createAsync(() => getTrainQuery(numero(), origine(), runDate()), {
     deferStream: true,
@@ -330,7 +331,19 @@ export default function Treno() {
               <div class="flex flex-col gap-2">
                 <For each={filteredRuns()}>
                   {(r) => {
-                    const selected = () => detail()?.live?.runId === r.runId;
+                    // Hot rows match by runId; pruned (rollup-only) rows have
+                    // runId null, so match the selected origine/date instead.
+                    const selected = () => {
+                      const liveId = detail()?.live?.runId;
+                      if (liveId != null) return liveId === r.runId;
+                      if (r.runId != null) return false;
+                      const o = origine(), d = runDate();
+                      if (o == null && d == null) return false;
+                      return (
+                        (o == null || r.origineCode === o) &&
+                        (d == null || r.dataPartenza === d)
+                      );
+                    };
                     return (
                       <A
                         href={`/treno/${numero()}?origine=${encodeURIComponent(r.origineCode)}&date=${encodeURIComponent(r.dataPartenza)}`}

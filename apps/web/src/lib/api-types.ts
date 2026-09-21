@@ -63,9 +63,11 @@ export interface TrainCandidate {
 
 /** One historical run of a train number, with per-run delay summary.
  * `avgDelay` = mean of max(delayArr, delayDep) across stops with actual
- * data (0 when no actual yet); `lastDelay`/`maxDelay` mirror train_runs. */
+ * data (0 when no actual yet); `lastDelay`/`maxDelay` mirror train_runs.
+ * `runId` is null for pruned runs served summary-only from the
+ * `daily_train_stats` rollup (no stops detail available). */
 export interface TrainRunSummary {
-  runId: number;
+  runId: number | null;
   origine: string;
   origineCode: string;
   destinazione: string;

@@ -185,29 +185,91 @@ export async function fetchTrain(
   const database = db();
   if (!database) return empty;
 
-  const runs = await database
+  // Hot window (exact, with stops) + per-run rollup (summary-only, kept
+  // forever). Merged newest-first, hot rows winning over rollup dupes of
+  // the same (origine, date) — today's runs exist in both.
+  const liveRuns = await database
     .select()
     .from(trainRuns)
     .where(eq(trainRuns.numero, n))
     .orderBy(desc(trainRuns.dataPartenza))
     .limit(60);
+  const rollupRuns = await database
+    .select()
+    .from(dailyTrainStats)
+    .where(eq(dailyTrainStats.numero, n))
+    .orderBy(desc(dailyTrainStats.runDate))
+    .limit(60);
 
-  if (runs.length === 0) {
+  if (liveRuns.length === 0 && rollupRuns.length === 0) {
     return { ...empty, dbConfigured: true };
   }
 
+  const seen = new Set(
+    liveRuns.map((r) => `${r.origineCode}|${r.dataPartenza}`),
+  );
+  type MergedRun = {
+    runId: number | null;
+    origine: string;
+    origineCode: string;
+    destinazione: string;
+    dataPartenza: string;
+    orarioPartenza: Date | null;
+    orarioArrivo: Date | null;
+    lastDelay: number;
+    maxDelay: number;
+    provvedimento: number;
+    hot: boolean;
+  };
+  const merged: MergedRun[] = liveRuns.map((r) => ({
+    runId: r.id,
+    origine: r.origine ?? "",
+    origineCode: r.origineCode,
+    destinazione: r.destinazione ?? "",
+    dataPartenza: r.dataPartenza,
+    orarioPartenza: r.orarioPartenza,
+    orarioArrivo: r.orarioArrivo,
+    lastDelay: r.lastDelay ?? 0,
+    maxDelay: r.maxDelay ?? r.lastDelay ?? 0,
+    provvedimento: r.provvedimento ?? 0,
+    hot: true,
+  }));
+  for (const r of rollupRuns) {
+    if (seen.has(`${r.origineCode}|${r.runDate}`)) continue;
+    merged.push({
+      runId: null,
+      origine: r.origine ?? "",
+      origineCode: r.origineCode,
+      destinazione: r.destinazione ?? "",
+      dataPartenza: r.runDate,
+      orarioPartenza: null,
+      orarioArrivo: null,
+      lastDelay: r.lastDelay ?? 0,
+      maxDelay: r.maxDelay ?? r.lastDelay ?? 0,
+      provvedimento: r.provvedimento ?? 0,
+      hot: false,
+    });
+  }
+  merged.sort((a, b) => b.dataPartenza.localeCompare(a.dataPartenza));
+  const capped = merged.slice(0, 60);
+  const hotById = new Map(liveRuns.map((r) => [r.id, r]));
+
   const run =
-    runs.find(
+    capped.find(
       (r) =>
         (!origine || r.origineCode === origine) &&
         (!date || r.dataPartenza === date),
-    ) ?? runs[0];
+    ) ?? capped[0];
+  const hotRow = run.hot ? (hotById.get(run.runId as number) ?? null) : null;
 
-  const stopRows = await database
-    .select()
-    .from(stops)
-    .where(eq(stops.runId, run.id))
-    .orderBy(stops.orderIdx);
+  const stopRows =
+    hotRow != null
+      ? await database
+          .select()
+          .from(stops)
+          .where(eq(stops.runId, hotRow.id))
+          .orderBy(stops.orderIdx)
+      : [];
 
   // Resolve station names (stops store only stationCode).
   // Fallback: major seed → raw code when missing from DB.
@@ -223,16 +285,12 @@ export async function fetchTrain(
   const stopName = (code: string) =>
     nameByCode.get(code) ?? seedByCode(code)?.name ?? code;
 
-  const delay = run.lastDelay ?? 0;
-  const delayStato = statoFor(delay, run.provvedimento ?? 0);
-  const temporal = temporalStatus(run.orarioPartenza?.toISOString() ?? null, run.orarioArrivo?.toISOString() ?? null, new Date(), delay);
-
-  // Per-run delay summary over all recent runs (single extra query).
+  // Per-run delay summary over hot runs (single extra query).
   // avgDelay = mean of max(delayArr, delayDep) across stops with actual
   // data; falls back to 0 when the run has no actuals yet.
-  const runIds = runs.map((r) => r.id);
+  const hotIds = capped.filter((m) => m.hot).map((m) => m.runId as number);
   const allStops =
-    runIds.length > 0
+    hotIds.length > 0
       ? await database
           .select({
             runId: stops.runId,
@@ -242,7 +300,7 @@ export async function fetchTrain(
             actualDep: stops.actualDep,
           })
           .from(stops)
-          .where(inArray(stops.runId, runIds))
+          .where(inArray(stops.runId, hotIds))
       : [];
   const delaysByRun = new Map<number, number[]>();
   const countByRun = new Map<number, number>();
@@ -255,55 +313,129 @@ export async function fetchTrain(
       delaysByRun.set(s.runId, arr);
     }
   }
-  const runSummaries = runs.map((r) => {
-    const vals = delaysByRun.get(r.id) ?? [];
-    const avgDelay =
-      vals.length > 0
-        ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10
-        : 0;
+  // Pruned runs have no stops rows: approximate the summary from the
+  // per-stop rollup (mean of station finals + stop count), one query.
+  // Same train number ⇒ single numero filter + date list.
+  const coldDates = [
+    ...new Set(capped.filter((m) => !m.hot).map((m) => m.dataPartenza)),
+  ];
+  const coldAvg = new Map<string, { avg: number; n: number }>();
+  if (coldDates.length > 0) {
+    const avgRows = await database
+      .select({
+        date: dailyStopStats.runDate,
+        avg: sql<number>`avg(${dailyStopStats.delayArrFinal})`,
+        n: sql<number>`count(*)`,
+      })
+      .from(dailyStopStats)
+      .where(
+        and(
+          eq(dailyStopStats.numero, n),
+          inArray(dailyStopStats.runDate, coldDates),
+        ),
+      )
+      .groupBy(dailyStopStats.runDate);
+    for (const r of avgRows) {
+      const v = Number(r.avg);
+      coldAvg.set(r.date, {
+        avg: Number.isFinite(v) ? Math.round(v * 10) / 10 : 0,
+        n: Number(r.n) || 0,
+      });
+    }
+  }
+  const runSummaries = capped.map((r) => {
+    let avgDelay: number;
+    let stopCount: number;
+    if (r.hot) {
+      const vals = delaysByRun.get(r.runId as number) ?? [];
+      avgDelay =
+        vals.length > 0
+          ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10
+          : 0;
+      stopCount = countByRun.get(r.runId as number) ?? 0;
+    } else {
+      const c = coldAvg.get(r.dataPartenza);
+      avgDelay = c?.avg ?? r.lastDelay;
+      stopCount = c?.n ?? 0;
+    }
     return {
-      runId: r.id,
-      origine: r.origine ?? "",
+      runId: r.runId,
+      origine: r.origine,
       origineCode: r.origineCode,
-      destinazione: r.destinazione ?? "",
+      destinazione: r.destinazione,
       dataPartenza: r.dataPartenza,
       orarioPartenza: r.orarioPartenza?.toISOString() ?? null,
       orarioArrivo: r.orarioArrivo?.toISOString() ?? null,
       avgDelay,
-      lastDelay: r.lastDelay ?? 0,
-      maxDelay: r.maxDelay ?? r.lastDelay ?? 0,
-      stops: countByRun.get(r.id) ?? 0,
-      provvedimento: r.provvedimento ?? 0,
-      stato: statoFor(r.lastDelay ?? 0, r.provvedimento ?? 0),
+      lastDelay: r.lastDelay,
+      maxDelay: r.maxDelay,
+      stops: stopCount,
+      provvedimento: r.provvedimento,
+      stato: statoFor(r.lastDelay, r.provvedimento),
     };
   });
 
+  const candidates = capped.map((r) => ({
+    numero: n,
+    origine: r.origine,
+    origineCode: r.origineCode,
+    dataPartenza: r.dataPartenza,
+  }));
+
+  if (hotRow == null) {
+    // Pruned run selected: summary-only card, no live data or stops.
+    return {
+      candidates,
+      runs: runSummaries,
+      live: {
+        runId: null,
+        numero: n,
+        categoria: "",
+        origine: run.origine,
+        destinazione: run.destinazione,
+        dataPartenza: run.dataPartenza,
+        scheduled: null,
+        expected: null,
+        delay: run.lastDelay,
+        binarioProg: null,
+        binarioReal: null,
+        stato: statoFor(run.lastDelay, run.provvedimento),
+        temporalStatus: "unknown" as const,
+        orarioPartenza: null,
+        orarioArrivo: null,
+        lastRilevamento: null,
+        lastRilevamentoStazione: null,
+      },
+      stops: [],
+      dbConfigured: true,
+    };
+  }
+
+  const hotDelay = hotRow.lastDelay ?? 0;
+  const hotStato = statoFor(hotDelay, hotRow.provvedimento ?? 0);
+  const hotTemporal = temporalStatus(hotRow.orarioPartenza?.toISOString() ?? null, hotRow.orarioArrivo?.toISOString() ?? null, new Date(), hotDelay);
+
   return {
-    candidates: runs.map((r) => ({
-      numero: r.numero,
-      origine: r.origine ?? "",
-      origineCode: r.origineCode,
-      dataPartenza: r.dataPartenza,
-    })),
+    candidates,
     runs: runSummaries,
     live: {
-      runId: run.id,
-      numero: run.numero,
-      categoria: run.categoria ?? "",
-      origine: run.origine ?? "",
-      destinazione: run.destinazione ?? "",
-      dataPartenza: run.dataPartenza,
-      scheduled: run.orarioPartenza?.toISOString() ?? null,
-      expected: run.orarioArrivo?.toISOString() ?? null,
-      delay,
+      runId: hotRow.id,
+      numero: hotRow.numero,
+      categoria: hotRow.categoria ?? "",
+      origine: hotRow.origine ?? "",
+      destinazione: hotRow.destinazione ?? "",
+      dataPartenza: hotRow.dataPartenza,
+      scheduled: hotRow.orarioPartenza?.toISOString() ?? null,
+      expected: hotRow.orarioArrivo?.toISOString() ?? null,
+      delay: hotDelay,
       binarioProg: null,
       binarioReal: null,
-      stato: delayStato,
-      temporalStatus: temporal,
-      orarioPartenza: run.orarioPartenza?.toISOString() ?? null,
-      orarioArrivo: run.orarioArrivo?.toISOString() ?? null,
-      lastRilevamento: run.lastRilevamentoAt?.toISOString() ?? null,
-      lastRilevamentoStazione: run.lastRilevamentoStazione,
+      stato: hotStato,
+      temporalStatus: hotTemporal,
+      orarioPartenza: hotRow.orarioPartenza?.toISOString() ?? null,
+      orarioArrivo: hotRow.orarioArrivo?.toISOString() ?? null,
+      lastRilevamento: hotRow.lastRilevamentoAt?.toISOString() ?? null,
+      lastRilevamentoStazione: hotRow.lastRilevamentoStazione,
     },
     stops: stopRows.map((s, i) => ({
       station: stopName(s.stationCode),

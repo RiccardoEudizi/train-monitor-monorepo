@@ -151,6 +151,8 @@ export const dailyTrainStats = pgTable(
     runDate: date("run_date").notNull(),
     numero: text("numero").notNull(),
     origineCode: text("origine_code").notNull(),
+    origine: text("origine"),
+    destinazione: text("destinazione"),
     lastDelay: integer("last_delay").notNull().default(0),
     maxDelay: integer("max_delay").notNull().default(0),
     provvedimento: integer("provvedimento").notNull().default(0),

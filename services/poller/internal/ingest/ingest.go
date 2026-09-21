@@ -190,8 +190,8 @@ func rollupToday(ctx context.Context, pool *pgxpool.Pool) error {
 // rule fetchOverview uses live: last stop with actual data, else origine.
 func rollupTrainToday(ctx context.Context, pool *pgxpool.Pool) error {
 	_, err := pool.Exec(ctx, `
-		INSERT INTO daily_train_stats (run_date, numero, origine_code, last_delay, max_delay, provvedimento, region_id, region_station)
-		SELECT r.data_partenza, r.numero, r.origine_code, r.last_delay, r.max_delay, r.provvedimento,
+		INSERT INTO daily_train_stats (run_date, numero, origine_code, origine, destinazione, last_delay, max_delay, provvedimento, region_id, region_station)
+		SELECT r.data_partenza, r.numero, r.origine_code, r.origine, r.destinazione, r.last_delay, r.max_delay, r.provvedimento,
 			COALESCE(sl.region_id, so.region_id), COALESCE(sl.code, so.code)
 		FROM train_runs r
 		LEFT JOIN LATERAL (
@@ -206,6 +206,7 @@ func rollupTrainToday(ctx context.Context, pool *pgxpool.Pool) error {
 		LEFT JOIN stations so ON so.code = r.origine_code
 		WHERE r.data_partenza = CURRENT_DATE
 		ON CONFLICT (run_date, numero, origine_code) DO UPDATE SET
+			origine = EXCLUDED.origine, destinazione = EXCLUDED.destinazione,
 			last_delay = EXCLUDED.last_delay, max_delay = EXCLUDED.max_delay,
 			provvedimento = EXCLUDED.provvedimento, region_id = EXCLUDED.region_id,
 			region_station = EXCLUDED.region_station`)
