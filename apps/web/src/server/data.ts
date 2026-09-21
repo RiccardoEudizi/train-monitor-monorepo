@@ -187,19 +187,26 @@ export async function fetchTrain(
 
   // Hot window (exact, with stops) + per-run rollup (summary-only, kept
   // forever). Merged newest-first, hot rows winning over rollup dupes of
-  // the same (origine, date) — today's runs exist in both.
+  // the same (origine, date) — today's runs exist in both. The rollup read
+  // is best-effort: DBs without migrations 006/007 fall back to hot only
+  // instead of 500ing the page.
   const liveRuns = await database
     .select()
     .from(trainRuns)
     .where(eq(trainRuns.numero, n))
     .orderBy(desc(trainRuns.dataPartenza))
     .limit(60);
-  const rollupRuns = await database
-    .select()
-    .from(dailyTrainStats)
-    .where(eq(dailyTrainStats.numero, n))
-    .orderBy(desc(dailyTrainStats.runDate))
-    .limit(60);
+  let rollupRuns: (typeof dailyTrainStats.$inferSelect)[] = [];
+  try {
+    rollupRuns = await database
+      .select()
+      .from(dailyTrainStats)
+      .where(eq(dailyTrainStats.numero, n))
+      .orderBy(desc(dailyTrainStats.runDate))
+      .limit(60);
+  } catch (e) {
+    console.error("daily_train_stats read failed, hot-window only", e);
+  }
 
   if (liveRuns.length === 0 && rollupRuns.length === 0) {
     return { ...empty, dbConfigured: true };
@@ -793,48 +800,67 @@ export async function fetchStats(
   // window (30d); "total"/"all" (sinceDate == null) reads the
   // `daily_train_stats` rollup instead, which is kept forever. Both are
   // normalized to the same shape so the aggregation below is shared.
+  // The rollup read is best-effort: DBs without migrations 006/007 fall
+  // back to the hot window instead of 500ing.
   let rows: Array<{
     lastDelay: number | null;
     maxDelay: number | null;
     provvedimento: number | null;
     dataPartenza: string;
-  }>;
+  }> | null = null;
   if (sinceDate == null) {
+    try {
+      const conds = [];
+      if (scope === "train" && id) conds.push(eq(dailyTrainStats.numero, id));
+      rows =
+        conds.length > 0
+          ? await database
+              .select({
+                lastDelay: dailyTrainStats.lastDelay,
+                maxDelay: dailyTrainStats.maxDelay,
+                provvedimento: dailyTrainStats.provvedimento,
+                dataPartenza: dailyTrainStats.runDate,
+              })
+              .from(dailyTrainStats)
+              .where(and(...conds))
+          : await database
+              .select({
+                lastDelay: dailyTrainStats.lastDelay,
+                maxDelay: dailyTrainStats.maxDelay,
+                provvedimento: dailyTrainStats.provvedimento,
+                dataPartenza: dailyTrainStats.runDate,
+              })
+              .from(dailyTrainStats);
+    } catch (e) {
+      console.error(
+        "daily_train_stats read failed, falling back to train_runs",
+        e,
+      );
+    }
+  }
+  if (rows == null) {
     const conds = [];
-    if (scope === "train" && id) conds.push(eq(dailyTrainStats.numero, id));
-    const rollup =
+    if (sinceDate) conds.push(gte(trainRuns.dataPartenza, sinceDate));
+    if (scope === "train" && id) conds.push(eq(trainRuns.numero, id));
+    rows =
       conds.length > 0
         ? await database
             .select({
-              lastDelay: dailyTrainStats.lastDelay,
-              maxDelay: dailyTrainStats.maxDelay,
-              provvedimento: dailyTrainStats.provvedimento,
-              dataPartenza: dailyTrainStats.runDate,
+              lastDelay: trainRuns.lastDelay,
+              maxDelay: trainRuns.maxDelay,
+              provvedimento: trainRuns.provvedimento,
+              dataPartenza: trainRuns.dataPartenza,
             })
-            .from(dailyTrainStats)
+            .from(trainRuns)
             .where(and(...conds))
         : await database
             .select({
-              lastDelay: dailyTrainStats.lastDelay,
-              maxDelay: dailyTrainStats.maxDelay,
-              provvedimento: dailyTrainStats.provvedimento,
-              dataPartenza: dailyTrainStats.runDate,
+              lastDelay: trainRuns.lastDelay,
+              maxDelay: trainRuns.maxDelay,
+              provvedimento: trainRuns.provvedimento,
+              dataPartenza: trainRuns.dataPartenza,
             })
-            .from(dailyTrainStats);
-    rows = rollup;
-  } else {
-    const conds = [];
-    conds.push(gte(trainRuns.dataPartenza, sinceDate));
-    if (scope === "train" && id) conds.push(eq(trainRuns.numero, id));
-    rows = await database
-      .select({
-        lastDelay: trainRuns.lastDelay,
-        maxDelay: trainRuns.maxDelay,
-        provvedimento: trainRuns.provvedimento,
-        dataPartenza: trainRuns.dataPartenza,
-      })
-      .from(trainRuns)
-      .where(and(...conds));
+            .from(trainRuns);
   }
 
   const finals = rows.map((r) => r.lastDelay ?? 0).sort((a, b) => a - b);
@@ -915,7 +941,9 @@ export async function fetchOverview(period: string): Promise<OverviewRes> {
   // Una riga per corsa: ritardo finale + regione dell'ultimo rilevamento.
   // Bounded periods read live `train_runs`+`stops`; "total"/"all" reads the
   // `daily_train_stats` rollup (region attribution frozen at rollup time),
-  // which survives the 30-day `train_runs` retention window.
+  // which survives the 30-day `train_runs` retention window. The rollup read
+  // is best-effort: DBs without migrations 006/007 fall back to the hot
+  // window instead of 500ing.
   // NB: con il driver neon-http `db.execute()` restituisce
   // FullQueryResults `{ rows: [...] }`, non un array diretto.
   type PerRunRow = {
@@ -923,16 +951,24 @@ export async function fetchOverview(period: string): Promise<OverviewRes> {
     regionId: number | null;
     stationCode: string | null;
   };
-  let perRun: PerRunRow[];
+  let perRun: PerRunRow[] | null = null;
   if (sinceDate == null) {
-    perRun = await database
-      .select({
-        lastDelay: dailyTrainStats.lastDelay,
-        regionId: dailyTrainStats.regionId,
-        stationCode: dailyTrainStats.regionStation,
-      })
-      .from(dailyTrainStats);
-  } else {
+    try {
+      perRun = await database
+        .select({
+          lastDelay: dailyTrainStats.lastDelay,
+          regionId: dailyTrainStats.regionId,
+          stationCode: dailyTrainStats.regionStation,
+        })
+        .from(dailyTrainStats);
+    } catch (e) {
+      console.error(
+        "daily_train_stats read failed, falling back to train_runs",
+        e,
+      );
+    }
+  }
+  if (perRun == null) {
     const rawPerRun = (await database.execute(sql`
     SELECT r.last_delay AS "lastDelay",
            COALESCE(sl.region_id, so.region_id) AS "regionId",
@@ -948,7 +984,7 @@ export async function fetchOverview(period: string): Promise<OverviewRes> {
       LIMIT 1
     ) sl ON true
     LEFT JOIN stations so ON so.code = r.origine_code
-    WHERE r.data_partenza >= ${sinceDate}
+    ${sinceDate ? sql`WHERE r.data_partenza >= ${sinceDate}` : sql``}
   `)) as unknown as Array<PerRunRow> | { rows: Array<PerRunRow> };
     perRun = Array.isArray(rawPerRun) ? rawPerRun : (rawPerRun.rows ?? []);
   }
