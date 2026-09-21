@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, ilike, inArray, or, sql } from "drizzle-orm";
 import {
   dailyStopStats,
+  dailyTrainStats,
   infoNews,
   stations,
   stops,
@@ -656,28 +657,53 @@ export async function fetchStats(
     };
   }
 
-  const conds = [];
-  if (sinceDate) conds.push(gte(trainRuns.dataPartenza, sinceDate));
-  if (scope === "train" && id) conds.push(eq(trainRuns.numero, id));
-  const rows =
-    conds.length > 0
-      ? await database
-          .select({
-            lastDelay: trainRuns.lastDelay,
-            maxDelay: trainRuns.maxDelay,
-            provvedimento: trainRuns.provvedimento,
-            dataPartenza: trainRuns.dataPartenza,
-          })
-          .from(trainRuns)
-          .where(and(...conds))
-      : await database
-          .select({
-            lastDelay: trainRuns.lastDelay,
-            maxDelay: trainRuns.maxDelay,
-            provvedimento: trainRuns.provvedimento,
-            dataPartenza: trainRuns.dataPartenza,
-          })
-          .from(trainRuns);
+  // Train/global scopes: bounded periods read the live `train_runs` hot
+  // window (30d); "total"/"all" (sinceDate == null) reads the
+  // `daily_train_stats` rollup instead, which is kept forever. Both are
+  // normalized to the same shape so the aggregation below is shared.
+  let rows: Array<{
+    lastDelay: number | null;
+    maxDelay: number | null;
+    provvedimento: number | null;
+    dataPartenza: string;
+  }>;
+  if (sinceDate == null) {
+    const conds = [];
+    if (scope === "train" && id) conds.push(eq(dailyTrainStats.numero, id));
+    const rollup =
+      conds.length > 0
+        ? await database
+            .select({
+              lastDelay: dailyTrainStats.lastDelay,
+              maxDelay: dailyTrainStats.maxDelay,
+              provvedimento: dailyTrainStats.provvedimento,
+              dataPartenza: dailyTrainStats.runDate,
+            })
+            .from(dailyTrainStats)
+            .where(and(...conds))
+        : await database
+            .select({
+              lastDelay: dailyTrainStats.lastDelay,
+              maxDelay: dailyTrainStats.maxDelay,
+              provvedimento: dailyTrainStats.provvedimento,
+              dataPartenza: dailyTrainStats.runDate,
+            })
+            .from(dailyTrainStats);
+    rows = rollup;
+  } else {
+    const conds = [];
+    conds.push(gte(trainRuns.dataPartenza, sinceDate));
+    if (scope === "train" && id) conds.push(eq(trainRuns.numero, id));
+    rows = await database
+      .select({
+        lastDelay: trainRuns.lastDelay,
+        maxDelay: trainRuns.maxDelay,
+        provvedimento: trainRuns.provvedimento,
+        dataPartenza: trainRuns.dataPartenza,
+      })
+      .from(trainRuns)
+      .where(and(...conds));
+  }
 
   const finals = rows.map((r) => r.lastDelay ?? 0).sort((a, b) => a - b);
   const maxes = rows.map((r) => r.maxDelay ?? r.lastDelay ?? 0);
@@ -755,9 +781,27 @@ export async function fetchOverview(period: string): Promise<OverviewRes> {
           .slice(0, 10);
 
   // Una riga per corsa: ritardo finale + regione dell'ultimo rilevamento.
+  // Bounded periods read live `train_runs`+`stops`; "total"/"all" reads the
+  // `daily_train_stats` rollup (region attribution frozen at rollup time),
+  // which survives the 30-day `train_runs` retention window.
   // NB: con il driver neon-http `db.execute()` restituisce
   // FullQueryResults `{ rows: [...] }`, non un array diretto.
-  const rawPerRun = (await database.execute(sql`
+  type PerRunRow = {
+    lastDelay: number | null;
+    regionId: number | null;
+    stationCode: string | null;
+  };
+  let perRun: PerRunRow[];
+  if (sinceDate == null) {
+    perRun = await database
+      .select({
+        lastDelay: dailyTrainStats.lastDelay,
+        regionId: dailyTrainStats.regionId,
+        stationCode: dailyTrainStats.regionStation,
+      })
+      .from(dailyTrainStats);
+  } else {
+    const rawPerRun = (await database.execute(sql`
     SELECT r.last_delay AS "lastDelay",
            COALESCE(sl.region_id, so.region_id) AS "regionId",
            COALESCE(sl.code, so.code) AS "stationCode"
@@ -772,21 +816,10 @@ export async function fetchOverview(period: string): Promise<OverviewRes> {
       LIMIT 1
     ) sl ON true
     LEFT JOIN stations so ON so.code = r.origine_code
-    ${sinceDate ? sql`WHERE r.data_partenza >= ${sinceDate}` : sql``}
-  `)) as unknown as
-    | Array<{
-        lastDelay: number | null;
-        regionId: number | null;
-        stationCode: string | null;
-      }>
-    | {
-        rows: Array<{
-          lastDelay: number | null;
-          regionId: number | null;
-          stationCode: string | null;
-        }>;
-      };
-  const perRun = Array.isArray(rawPerRun) ? rawPerRun : (rawPerRun.rows ?? []);
+    WHERE r.data_partenza >= ${sinceDate}
+  `)) as unknown as Array<PerRunRow> | { rows: Array<PerRunRow> };
+    perRun = Array.isArray(rawPerRun) ? rawPerRun : (rawPerRun.rows ?? []);
+  }
 
   const byRegion = new Map<
     string,

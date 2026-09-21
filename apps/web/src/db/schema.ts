@@ -138,6 +138,37 @@ export const dailyStopStats = pgTable(
 );
 
 /**
+ * Rolled-up daily per-run stats for all-time train/global history.
+ * Written by the poller rollup from `train_runs` (converges to end-of-day);
+ * kept forever, while `train_runs` is a 30-day hot window. One row per run.
+ * `regionId`/`regionStation` freeze the overview attribution (last actual
+ * stop, else origine) — callers still pass them through `resolveRegion`.
+ */
+export const dailyTrainStats = pgTable(
+  "daily_train_stats",
+  {
+    id: serial("id").primaryKey(),
+    runDate: date("run_date").notNull(),
+    numero: text("numero").notNull(),
+    origineCode: text("origine_code").notNull(),
+    lastDelay: integer("last_delay").notNull().default(0),
+    maxDelay: integer("max_delay").notNull().default(0),
+    provvedimento: integer("provvedimento").notNull().default(0),
+    regionId: integer("region_id"),
+    regionStation: text("region_station"),
+  },
+  (t) => [
+    uniqueIndex("daily_train_stats_unique_idx").on(
+      t.runDate,
+      t.numero,
+      t.origineCode,
+    ),
+    index("daily_train_stats_numero_idx").on(t.numero),
+    index("daily_train_stats_date_idx").on(t.runDate),
+  ],
+);
+
+/**
  * National counters + infomobility news, refreshed by the poller.
  * `kind`: ticker | news | lavori | stats
  */
@@ -154,3 +185,4 @@ export type Station = typeof stations.$inferSelect;
 export type TrainRun = typeof trainRuns.$inferSelect;
 export type Stop = typeof stops.$inferSelect;
 export type DailyStopStat = typeof dailyStopStats.$inferSelect;
+export type DailyTrainStat = typeof dailyTrainStats.$inferSelect;

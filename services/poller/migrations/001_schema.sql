@@ -1,6 +1,7 @@
 -- Mirrors apps/web/src/db/schema.ts.
--- The poller is a dumb ingester: upsert train_runs/stops (current truth),
--- roll up daily_stop_stats (kept forever), prune train_runs older than 30d.
+-- The poller is a dumb ingester: upsert train_runs/stops (current truth,
+-- 30-day hot window), roll up daily_stop_stats + daily_train_stats
+-- (both kept forever).
 
 CREATE TABLE IF NOT EXISTS stations (
   id SERIAL PRIMARY KEY,
@@ -72,6 +73,21 @@ CREATE TABLE IF NOT EXISTS daily_stop_stats (
 );
 CREATE INDEX IF NOT EXISTS daily_stats_numero_idx ON daily_stop_stats (numero);
 CREATE INDEX IF NOT EXISTS daily_stats_station_idx ON daily_stop_stats (station_code);
+
+CREATE TABLE IF NOT EXISTS daily_train_stats (
+  id SERIAL PRIMARY KEY,
+  run_date DATE NOT NULL,
+  numero TEXT NOT NULL,
+  origine_code TEXT NOT NULL,
+  last_delay INTEGER NOT NULL DEFAULT 0,
+  max_delay INTEGER NOT NULL DEFAULT 0,
+  provvedimento INTEGER NOT NULL DEFAULT 0,
+  region_id INTEGER,
+  region_station TEXT,
+  UNIQUE (run_date, numero, origine_code)
+);
+CREATE INDEX IF NOT EXISTS daily_train_stats_numero_idx ON daily_train_stats (numero);
+CREATE INDEX IF NOT EXISTS daily_train_stats_date_idx ON daily_train_stats (run_date);
 
 CREATE TABLE IF NOT EXISTS info_news (
   id SERIAL PRIMARY KEY,

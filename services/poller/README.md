@@ -14,9 +14,10 @@ Each cycle:
 2. **Resolve** — `cercaNumeroTrenoTrenoAutocomplete` → `(numero, origine, midnight)`
    triple, latest only.
 3. **Store** — `andamentoTreno` → upsert `train_runs` + `stops` (current truth).
-4. **Rollup** — today's stops folded into `daily_stop_stats` (upserted, converges
-   to end-of-day truth, kept forever); `train_runs`/`stops` older than 30 days
-   deleted (cascades to `stops`).
+4. **Rollup** — today's stops folded into `daily_stop_stats` and today's runs
+   into `daily_train_stats` (both upserted, converge to end-of-day truth,
+   kept forever); `train_runs`/`stops` older than 30 days deleted
+   (cascades to `stops`).
 5. **Info** — `statistiche` + `infomobilitaTicker` → `info_news`
    (national counters + ticker items as `string[]`).
 

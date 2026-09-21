@@ -65,7 +65,7 @@ Web lookup order: `apps/web/.env`, then repo-root `.env`, then launcher CWD (`sr
 - **Mirror:** `apps/web/src/db/schema.ts` (Drizzle, read-only shapes for the app).
 - Rule: any table change = new `services/poller/migrations/00N_*.sql` + manual mirror update in `schema.ts`. Never let them drift.
 
-Tables: `stations`, `train_runs` (keyed by `(numero, origine_code, data_partenza)`, 30-day hot window), `stops` (current truth), `daily_stop_stats` (rollup, kept forever), `info_news(kind=ticker|news|lavori|stats, payload=jsonb)`.
+Tables: `stations`, `train_runs` (keyed by `(numero, origine_code, data_partenza)`, 30-day hot window), `stops` (current truth), `daily_stop_stats` (per-stop rollup, kept forever), `daily_train_stats` (per-run rollup incl. frozen region, kept forever), `info_news(kind=ticker|news|lavori|stats, payload=jsonb)`.
 
 ## Deployment
 

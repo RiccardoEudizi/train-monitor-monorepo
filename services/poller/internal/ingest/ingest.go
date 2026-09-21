@@ -1,6 +1,7 @@
 // Package ingest is the dumb-ingester poll loop: discover active trains from
-// boards, fetch andamentoTreno detail, upsert train_runs/stops (current truth)
-// and fold today's stops into daily_stop_stats (kept forever).
+// boards, fetch andamentoTreno detail, upsert train_runs/stops (current truth,
+// 30-day hot window) and fold today's data into daily_stop_stats (per-stop)
+// and daily_train_stats (per-run), both kept forever.
 // All aggregation lives in the app's SQL views.
 package ingest
 
@@ -182,8 +183,38 @@ func rollupToday(ctx context.Context, pool *pgxpool.Pool) error {
 	return err
 }
 
+// rollupTrainToday folds today's runs into daily_train_stats (upserted, so
+// repeated runs converge to the end-of-day truth). One row per run, kept
+// forever, so the app's train/global "total" stats survive the 30-day
+// train_runs retention window. Region attribution is frozen with the same
+// rule fetchOverview uses live: last stop with actual data, else origine.
+func rollupTrainToday(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := pool.Exec(ctx, `
+		INSERT INTO daily_train_stats (run_date, numero, origine_code, last_delay, max_delay, provvedimento, region_id, region_station)
+		SELECT r.data_partenza, r.numero, r.origine_code, r.last_delay, r.max_delay, r.provvedimento,
+			COALESCE(sl.region_id, so.region_id), COALESCE(sl.code, so.code)
+		FROM train_runs r
+		LEFT JOIN LATERAL (
+			SELECT stat.region_id AS region_id, st.station_code AS code
+			FROM stops st
+			LEFT JOIN stations stat ON stat.code = st.station_code
+			WHERE st.run_id = r.id
+				AND (st.actual_arr IS NOT NULL OR st.actual_dep IS NOT NULL)
+			ORDER BY st.order_idx DESC
+			LIMIT 1
+		) sl ON true
+		LEFT JOIN stations so ON so.code = r.origine_code
+		WHERE r.data_partenza = CURRENT_DATE
+		ON CONFLICT (run_date, numero, origine_code) DO UPDATE SET
+			last_delay = EXCLUDED.last_delay, max_delay = EXCLUDED.max_delay,
+			provvedimento = EXCLUDED.provvedimento, region_id = EXCLUDED.region_id,
+			region_station = EXCLUDED.region_station`)
+	return err
+}
+
 // cleanupOldRuns deletes runs (cascading to stops) older than the retention
-// window. Daily aggregates in daily_stop_stats are kept forever.
+// window. Daily aggregates in daily_stop_stats and daily_train_stats are
+// kept forever.
 func cleanupOldRuns(ctx context.Context, pool *pgxpool.Pool) error {
 	_, err := pool.Exec(ctx,
 		`DELETE FROM train_runs WHERE data_partenza < NOW() - make_interval(days => $1)`,
@@ -266,6 +297,9 @@ func Cycle(ctx context.Context, pool *pgxpool.Pool, client *vt.Client, cfg Confi
 	// 3. Rollup + retention.
 	if err := rollupToday(ctx, pool); err != nil {
 		log.Printf("rollup: %v", err)
+	}
+	if err := rollupTrainToday(ctx, pool); err != nil {
+		log.Printf("rollup-train: %v", err)
 	}
 	if err := cleanupOldRuns(ctx, pool); err != nil {
 		log.Printf("cleanup: %v", err)
