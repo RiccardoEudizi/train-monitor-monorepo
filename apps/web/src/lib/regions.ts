@@ -3,12 +3,11 @@ import { MAJOR_STATIONS } from "~/lib/stations-seed";
 /**
  * ViaggiaTreno `region_id` → nome italiano.
  * Ricavata dai dati seed (stazioni principali) + compartimenti standard.
- * `0` = bucket "principali" dell'endpoint elencoStazioni/0 (mix geografico):
- * nel DB molte major hanno region_id=0, per questo esiste
- * MAJOR_REGION_OVERRIDE (codice stazione → regione geografica).
+ * Nota: `0` NON è una regione — è il bucket "principali" dell'endpoint
+ * elencoStazioni/0 (mix geografico). Viene normalizzato a "Sconosciuta"
+ * ed escluso dai ranking regionali (vedi resolveRegion + fetchOverview).
  */
 export const REGION_NAMES: Record<number, string> = {
-  0: "Principali",
   1: "Lombardia",
   2: "Liguria",
   3: "Piemonte",
@@ -17,6 +16,7 @@ export const REGION_NAMES: Record<number, string> = {
   6: "Umbria",
   7: "Molise",
   8: "Emilia-Romagna",
+  9: "Trentino-Alto Adige",
   10: "Friuli-Venezia Giulia",
   11: "Marche",
   12: "Veneto",
@@ -33,14 +33,14 @@ export const REGION_NAMES: Record<number, string> = {
 };
 
 export function regionName(id: number | null | undefined): string {
-  if (id == null) return "Sconosciuta";
+  if (id == null || id === 0) return "Sconosciuta";
   return REGION_NAMES[id] ?? `Regione ${id}`;
 }
 
 /**
  * Codice stazione major → regione geografica.
- * Serve perché il poller assegna region_id=0 alle stazioni viste per prime
- * sotto elencoStazioni/0 (principali). Usato come fallback quando
+ * Tampone storico: il seeder scriveva region_id=0 alle stazioni viste per
+ * prime sotto elencoStazioni/0 (principali). Usato come fallback quando
  * stations.region_id è 0 o NULL.
  */
 export const MAJOR_REGION_OVERRIDE: ReadonlyMap<string, number> = new Map(
@@ -50,7 +50,12 @@ export const MAJOR_REGION_OVERRIDE: ReadonlyMap<string, number> = new Map(
   ]),
 );
 
-/** Risolve la regione geografica: override major vince su 0/NULL. */
+/**
+ * Risolve la regione geografica: override major vince su 0/NULL.
+ * Ritorna null per 0/NULL non risolti: 0 non è una regione reale
+ * (bucket elencoStazioni/0) e null = stazione senza regione — entrambi
+ * vanno esclusi dai ranking regionali dai chiamanti.
+ */
 export function resolveRegion(
   stationCode: string | null | undefined,
   regionId: number | null | undefined,
@@ -61,5 +66,6 @@ export function resolveRegion(
       return override;
     }
   }
-  return regionId ?? null;
+  if (regionId == null || regionId === 0) return null;
+  return regionId;
 }

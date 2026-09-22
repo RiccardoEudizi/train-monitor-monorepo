@@ -31,7 +31,9 @@ pnpm dev
 # --- poller (another shell) ---
 psql $DATABASE_URL -f services/poller/migrations/001_schema.sql
 psql $DATABASE_URL -f services/poller/migrations/004_majors.sql
-psql $DATABASE_URL -f services/poller/migrations/005_drop_snapshots.sql  # existing DBs only
+for f in 005_drop_snapshots 006_daily_train_stats 007_daily_train_names 008_daily_train_stats_id; do
+  psql $DATABASE_URL -f services/poller/migrations/$f.sql  # existing DBs only
+done
 pnpm poller:seed       # all stations from elencoStazioni (never touches is_major)
 pnpm poller:run        # loop every POLL_INTERVAL_SECONDS (default 120)
 ```

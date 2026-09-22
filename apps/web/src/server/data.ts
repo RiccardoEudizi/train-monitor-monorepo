@@ -990,14 +990,16 @@ export async function fetchOverview(period: string): Promise<OverviewRes> {
   }
 
   const byRegion = new Map<
-    string,
-    { regionId: number | null; runs: number; delayed: number; total: number; max: number }
+    number,
+    { regionId: number; runs: number; delayed: number; total: number; max: number }
   >();
   for (const row of perRun) {
     const delay = row.lastDelay ?? 0;
     const regionId = resolveRegion(row.stationCode, row.regionId);
-    const key = regionId == null ? "null" : String(regionId);
-    const agg = byRegion.get(key) ?? {
+    // Esclude sconosciute (NULL) e bucket "principali" (0 → null da
+    // resolveRegion): non sono regioni reali, restano nel nazionale.
+    if (regionId == null) continue;
+    const agg = byRegion.get(regionId) ?? {
       regionId,
       runs: 0,
       delayed: 0,
@@ -1008,7 +1010,7 @@ export async function fetchOverview(period: string): Promise<OverviewRes> {
     agg.total += delay;
     if (delay > DELAY_THRESHOLD) agg.delayed += 1;
     if (delay > agg.max) agg.max = delay;
-    byRegion.set(key, agg);
+    byRegion.set(regionId, agg);
   }
 
   const regions: RegionStat[] = [...byRegion.values()]

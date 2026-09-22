@@ -31,8 +31,16 @@ func main() {
 	client := vt.NewClient()
 	seen := map[string]bool{}
 	total := 0
-	// Region 0 = principals; 1..22 add the rest.
-	for region := 0; region <= 22; region++ {
+	// 1..22 prima (regioni geografiche reali), 0 per ultimo solo come
+	// fallback per stazioni presenti solo nel bucket "principali".
+	// 0 NON è una regione: fargli vincere l'upsert sporca il DB con
+	// region_id=0 che poi affiora nei ranking come "Principali".
+	regions := make([]int, 0, 23)
+	for region := 1; region <= 22; region++ {
+		regions = append(regions, region)
+	}
+	regions = append(regions, 0)
+	for _, region := range regions {
 		list, err := client.ElencoStazioni(ctx, region)
 		if err != nil {
 			log.Printf("region %d: %v", region, err)
@@ -44,6 +52,11 @@ func main() {
 				continue
 			}
 			seen[code] = true
+			// Stazioni contese da più endpoint: vince la canonica.
+			regionEff := region
+			if c, ok := canonicalRegion[code]; ok {
+				regionEff = c
+			}
 			name := s.Localita.NomeLungo
 			if name == "" {
 				name = code
@@ -55,7 +68,7 @@ func main() {
 					name=EXCLUDED.name, short_name=EXCLUDED.short_name, city=EXCLUDED.city,
 					region_id=EXCLUDED.region_id, lat=EXCLUDED.lat, lon=EXCLUDED.lon,
 					updated_at=NOW()`,
-				code, name, s.Localita.NomeBreve, s.Localita.Label, region,
+				code, name, s.Localita.NomeBreve, s.Localita.Label, regionEff,
 				s.Lat, s.Lon,
 			)
 			if err != nil {

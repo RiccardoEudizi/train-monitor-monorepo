@@ -31,6 +31,9 @@ cp .env.example .env   # set DATABASE_URL
 psql $DATABASE_URL -f migrations/001_schema.sql
 psql $DATABASE_URL -f migrations/004_majors.sql
 psql $DATABASE_URL -f migrations/005_drop_snapshots.sql  # existing DBs only
+psql $DATABASE_URL -f migrations/006_daily_train_stats.sql  # existing DBs only
+psql $DATABASE_URL -f migrations/007_daily_train_names.sql  # existing DBs only
+psql $DATABASE_URL -f migrations/008_daily_train_stats_id.sql  # existing DBs only
 go run ./cmd/seed      # all stations from elencoStazioni/0..22 (never touches is_major)
 go run ./cmd/poller    # loop every POLL_INTERVAL_SECONDS (default 120)
 ```
