@@ -65,14 +65,14 @@ export default function DelayGauge(props: { pct: number; height?: number }) {
   });
 
   return (
-    <div class="flex items-center gap-2">
+    <div class="flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
       <div
-        class="min-w-0 flex-1"
+        class="w-full min-w-0 max-w-full flex-1 overflow-hidden"
         role="img"
         aria-label={`${pct()} percento treni in ritardo`}
-        style={{ position: "relative", height: `${props.height ?? 56}px` }}
+        style={{ position: "relative", height: `${props.height ?? 56}px`, width: "100%", "max-width": "100%" }}
       >
-        <canvas ref={canvas} aria-label={`${pct()} percento treni in ritardo`} />
+        <canvas ref={canvas} aria-label={`${pct()} percento treni in ritardo`} class="max-w-full" />
       </div>
       <span class="shrink-0 text-[11px] tabular-nums text-zinc-600 dark:text-zinc-400">
         {pct()}%

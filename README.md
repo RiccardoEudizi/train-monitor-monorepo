@@ -1,4 +1,4 @@
-# train-monitor monorepo
+# Ritardometro (monorepo)
 
 Public, no-auth live board of Italian train delays.
 

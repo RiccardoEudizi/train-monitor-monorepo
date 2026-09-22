@@ -69,8 +69,8 @@ export default function TrendChart(props: {
           }),
         },
         scales: {
-          x: { grid: { color: "transparent" }, ticks: { ...TICKS, maxTicksLimit: 4 } },
-          y: { grid: { color: GRID }, ticks: TICKS, beginAtZero: true },
+          x: { grid: { color: "transparent" }, ticks: { ...TICKS, maxTicksLimit: 4, maxRotation: 0, autoSkip: true } },
+          y: { grid: { color: GRID }, ticks: { ...TICKS, maxRotation: 0 }, beginAtZero: true },
         },
       },
     });
@@ -89,9 +89,10 @@ export default function TrendChart(props: {
     <div
       role="img"
       aria-label={props.label ?? "trend ritardi"}
-      style={{ position: "relative", height: `${props.height ?? 96}px` }}
+      class="w-full max-w-full min-w-0 overflow-hidden"
+      style={{ position: "relative", height: `${props.height ?? 96}px`, width: "100%", "max-width": "100%" }}
     >
-      <canvas ref={canvas} aria-label={props.label ?? "trend ritardi"} />
+      <canvas ref={canvas} aria-label={props.label ?? "trend ritardi"} class="max-w-full" />
     </div>
   );
 }

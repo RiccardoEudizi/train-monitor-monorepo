@@ -147,7 +147,10 @@ export function TrainRow(props: { t: TrainCard }) {
       </span>
       <span class="truncate text-xs text-zinc-500">
         {t().origine} → {t().destinazione}
-        <span class="ml-2 tabular-nums">{fmtTime(t().scheduled)}</span>
+        <span class="ml-2 tabular-nums">
+          {fmtTime(t().orarioPartenza ?? t().scheduled)} →{" "}
+          {fmtTime(t().orarioArrivo ?? t().expected)}
+        </span>
       </span>
       <TrainStatus temporalStatus={t().temporalStatus ?? "unknown"} delayStato={t().stato} />
       <DelayBadge delay={t().delay} stato={t().stato} />

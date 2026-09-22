@@ -257,12 +257,12 @@ export default function Home() {
             }
           >
             <div class="grid gap-4 md:grid-cols-3">
-              <div>
+              <div class="min-w-0">
                 <p class="text-[11px] uppercase tracking-widest text-zinc-500">
                   media nazionale ritardi
                 </p>
-                {/* Mobile: text left, chart right. md+: contents → stacks as before. */}
-                <div class="flex items-center justify-between gap-3 md:contents">
+                {/* Valore sopra, chart sotto (mobile e desktop). */}
+                <div class="md:contents">
                   <div class="min-w-0">
                     <p class="mt-1 min-h-9 text-3xl font-bold tabular-nums">
                       <PixelValue
@@ -286,7 +286,7 @@ export default function Home() {
                       </PixelValue>
                     </p>
                   </div>
-                  <div class="min-w-0 flex-1 md:mt-2 md:min-h-[86px]">
+                  <div class="mt-2 min-w-0 max-w-full overflow-hidden md:min-h-[86px]">
                     <AsciiFx
                       watch={(overview.latest?.national.series ?? [])
                         .map((s) => s.avgFinal)
@@ -306,7 +306,7 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-              <div>
+              <div class="min-w-0">
                 <p class="text-[11px] uppercase tracking-widest text-zinc-500">
                   regione con più ritardo
                 </p>
@@ -375,7 +375,7 @@ export default function Home() {
                   </Show>
                 </div>
               </div>
-              <div>
+              <div class="min-w-0">
                 <p class="text-[11px] uppercase tracking-widest text-zinc-500">
                   incidenza ritardi
                 </p>
@@ -390,7 +390,7 @@ export default function Home() {
                       </PixelValue>
                     </p>
                   </div>
-                  <div class="min-w-0 flex-1 md:mt-2">
+                  <div class="min-w-0 max-w-full flex-1 overflow-hidden md:mt-2">
                     <AsciiFx
                       watch={`${overview.latest?.national.delayedRate ?? 0}`}
                     >
@@ -417,7 +417,7 @@ export default function Home() {
               </div>
             </div>
             <Show when={(overview.latest?.regions ?? []).length > 1}>
-              <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+              <div class="mt-4 min-w-0 max-w-full overflow-hidden border-t border-zinc-200 pt-3 dark:border-zinc-800">
                 <p class="mb-2 text-[11px] uppercase tracking-widest text-zinc-500">
                   top regioni per ritardo cumulato
                 </p>

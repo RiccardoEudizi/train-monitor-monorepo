@@ -1,4 +1,4 @@
-# train-monitor-v2
+# Ritardometro
 
 Public, no-auth live board of Italian train delays. SolidStart + SolidJS + Tailwind v4 + Drizzle + Postgres.
 

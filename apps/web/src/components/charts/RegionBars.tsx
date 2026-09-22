@@ -49,8 +49,18 @@ export default function RegionBars(props: { rows: RegionBarRow[]; height?: numbe
           }),
         },
         scales: {
-          x: { grid: { color: GRID }, ticks: TICKS },
-          y: { grid: { color: "transparent" }, ticks: TICKS },
+          x: { grid: { color: GRID }, ticks: { ...TICKS, maxRotation: 0 } },
+          y: {
+            grid: { color: "transparent" },
+            ticks: {
+              ...TICKS,
+              maxRotation: 0,
+              callback: function (this: any, v: string | number) {
+                const label = String(this.getLabelForValue(Number(v)));
+                return label.length > 16 ? `${label.slice(0, 15)}…` : label;
+              },
+            } as unknown as typeof TICKS,
+          },
         },
       },
     });
@@ -69,12 +79,15 @@ export default function RegionBars(props: { rows: RegionBarRow[]; height?: numbe
     <div
       role="img"
       aria-label="top regioni per ritardo cumulato"
+      class="w-full max-w-full min-w-0 overflow-hidden"
       style={{
         position: "relative",
         height: `${props.height ?? Math.max(120, data().length * 28 + 32)}px`,
+        width: "100%",
+        "max-width": "100%",
       }}
     >
-      <canvas ref={canvas} aria-label="top regioni per ritardo cumulato" />
+      <canvas ref={canvas} aria-label="top regioni per ritardo cumulato" class="max-w-full" />
     </div>
   );
 }

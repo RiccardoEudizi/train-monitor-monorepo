@@ -1,6 +1,6 @@
 {
-  "name": "train-monitor",
-  "short_name": "train-monitor",
+  "name": "Ritardometro",
+  "short_name": "Ritardometro",
   "lang": "it",
   "start_url": "/",
   "display": "standalone",

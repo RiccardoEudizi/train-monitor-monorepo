@@ -106,7 +106,7 @@ export function AsciiFx(props: {
 
   return (
     <div
-      class={`fx-ascii ${entering() ? "fx-ascii-enter" : ""}`}
+      class={`fx-ascii w-full max-w-full min-w-0 overflow-hidden ${entering() ? "fx-ascii-enter" : ""}`}
       style={entering() ? { "animation-delay": `${props.delayMs ?? 0}ms` } : undefined}
     >
       {props.children}

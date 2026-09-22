@@ -114,8 +114,8 @@ export default function Stazione() {
           <Show when={stats() && (stats()?.runs ?? 0) > 0}>
             <Card class="mb-8">
               <SectionTitle>storico stazione · 30d</SectionTitle>
-              <div class="flex items-center gap-6">
-                <div>
+              <div class="flex min-w-0 max-w-full flex-wrap items-center gap-4 sm:gap-6">
+                <div class="min-w-0 shrink-0">
                   <p class="text-2xl font-bold tabular-nums">
                     <PixelValue value={`+${stats()?.avgFinal ?? 0}'`}>
                       +{stats()?.avgFinal ?? 0}'
@@ -123,16 +123,18 @@ export default function Stazione() {
                   </p>
                   <p class="text-xs text-zinc-500">ritardo medio arrivi</p>
                 </div>
-                <AsciiFx
-                  watch={(stats()?.series ?? []).map((s) => s.avgFinal).join(",")}
-                >
-                  <TrendChart
-                    values={(stats()?.series ?? []).map((s) => s.avgFinal)}
-                    labels={(stats()?.series ?? []).map((s) => s.date)}
-                    height={56}
-                    label={`storico ritardi stazione ${code()}`}
-                  />
-                </AsciiFx>
+                <div class="min-w-0 max-w-full flex-1 basis-48 overflow-hidden">
+                  <AsciiFx
+                    watch={(stats()?.series ?? []).map((s) => s.avgFinal).join(",")}
+                  >
+                    <TrendChart
+                      values={(stats()?.series ?? []).map((s) => s.avgFinal)}
+                      labels={(stats()?.series ?? []).map((s) => s.date)}
+                      height={56}
+                      label={`storico ritardi stazione ${code()}`}
+                    />
+                  </AsciiFx>
+                </div>
                 <p class="ml-auto text-xs tabular-nums text-zinc-500">
                   <PixelValue value={`${stats()?.runs}`}>
                     {stats()?.runs}

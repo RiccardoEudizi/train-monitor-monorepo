@@ -28,13 +28,13 @@ export default function Seo(props: {
       <Meta property="og:image:type" content="image/png" />
       <Meta property="og:image:width" content="1200" />
       <Meta property="og:image:height" content="630" />
-      <Meta property="og:image:alt" content="train-monitor — Ritardi treni in tempo reale" />
+      <Meta property="og:image:alt" content="Ritardometro — i treni italiani, in ritardo live" />
       <Meta property="og:locale" content="it_IT" />
       <Meta name="twitter:card" content="summary_large_image" />
       <Meta name="twitter:title" content={props.title} />
       <Meta name="twitter:description" content={props.description} />
       <Meta name="twitter:image" content={`${SITE_URL}${OG_IMAGE}`} />
-      <Meta name="twitter:image:alt" content="train-monitor — Ritardi treni in tempo reale" />
+      <Meta name="twitter:image:alt" content="Ritardometro — i treni italiani, in ritardo live" />
     </>
   );
 }
