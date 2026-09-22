@@ -30,6 +30,7 @@ Each cycle:
 cp .env.example .env   # set DATABASE_URL
 psql $DATABASE_URL -f migrations/001_schema.sql
 psql $DATABASE_URL -f migrations/004_majors.sql
+psql $DATABASE_URL -f migrations/009_rfi_topup.sql
 psql $DATABASE_URL -f migrations/005_drop_snapshots.sql  # existing DBs only
 psql $DATABASE_URL -f migrations/006_daily_train_stats.sql  # existing DBs only
 psql $DATABASE_URL -f migrations/007_daily_train_names.sql  # existing DBs only
@@ -39,9 +40,10 @@ go run ./cmd/poller    # loop every POLL_INTERVAL_SECONDS (default 120)
 ```
 
 `003_tier2_majors.sql` is kept for existing DBs; fresh installs only need
-`004_majors.sql`, which holds the full 200-station list (Tier-1 + Tier-2,
-the single source of truth). Re-running seed is safe: it upserts station
-details without clearing `is_major`.
+`004_majors.sql` (200 stations) + `009_rfi_topup.sql` (60 stations, every
+remaining RFI MAIN HUB / HUB / MAJOR station with a live ViaggiaTreno board),
+260 majors total, the single source of truth for `is_major`. Re-running seed
+is safe: it upserts station details without clearing `is_major`.
 
 ## Config
 

@@ -1,4 +1,6 @@
--- Majors list (Tier-1 + Tier-2, 200 stations): single source of truth.
+-- Majors list, base (Tier-1 + Tier-2, 200 stations). Extended by
+-- 009_rfi_topup.sql (60 more); together they are the single source of
+-- truth for is_major (260 majors).
 -- Supersedes the Tier-1 list formerly hardcoded in cmd/seed and extends 003.
 -- Idempotent: safe to re-run after seed (seed never touches is_major).
 -- Selected by live traffic (stops.run counts) + manual coverage for Aosta/Brenner.

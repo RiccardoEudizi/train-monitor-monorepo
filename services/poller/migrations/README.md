@@ -9,9 +9,12 @@ Fresh installs apply, in order:
 006_daily_train_stats.sql
 007_daily_train_names.sql
 008_daily_train_stats_id.sql
+009_rfi_topup.sql
 ```
 
-`004_majors.sql` (200 stations) is the single source of truth for `is_major`.
+`004_majors.sql` (200 stations) + `009_rfi_topup.sql` (60 stations) are the
+single source of truth for `is_major` (260 majors total: every RFI MAIN HUB /
+HUB / MAJOR station with a live ViaggiaTreno board).
 The seeder (`go run ./cmd/seed`) never touches `is_major`.
 
 ## Archive

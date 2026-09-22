@@ -29,14 +29,14 @@ pnpm install
 pnpm db:push           # create tables (drizzle, dev)
 pnpm dev
 # --- poller (another shell) ---
-for f in 001_schema 004_majors 005_drop_snapshots 006_daily_train_stats 007_daily_train_names 008_daily_train_stats_id; do
+for f in 001_schema 004_majors 009_rfi_topup 005_drop_snapshots 006_daily_train_stats 007_daily_train_names 008_daily_train_stats_id; do
   psql $DATABASE_URL -f services/poller/migrations/$f.sql  # fresh install
 done
 pnpm poller:seed       # all stations from elencoStazioni (never touches is_major)
 pnpm poller:run        # loop every POLL_INTERVAL_SECONDS (default 120)
 ```
 
-Superseded one-shots (`002_*`, `003_*`) live in `services/poller/migrations/archive/` for old DBs only; `004_majors.sql` is the full 200-station list, single source of truth. See `services/poller/migrations/README.md`.
+Superseded one-shots (`002_*`, `003_*`) live in `services/poller/migrations/archive/` for old DBs only; `004_majors.sql` (200 stations) + `009_rfi_topup.sql` (60 stations, all remaining RFI MAIN HUB / HUB / MAJOR stations) are the full 260-station list, single source of truth. See `services/poller/migrations/README.md`.
 
 ## Scripts
 
