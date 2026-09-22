@@ -1,7 +1,10 @@
 import { Meta, Title } from "@solidjs/meta";
 import { canonicalUrl, OG_IMAGE, SITE_NAME, SITE_URL } from "~/lib/seo";
 
-/** One instance per page: SSR head tags and reactive client navigation. */
+/** One instance per page: SSR head tags and reactive client navigation.
+ * Pair with SiteMeta (global tags, mounted once): Seo owns per-page
+ * title/description/OG, SiteMeta owns canonical/charset/viewport/icons.
+ * Shared origin constants live in ~/lib/seo. */
 export default function Seo(props: {
   title: string;
   description: string;

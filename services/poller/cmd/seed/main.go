@@ -16,8 +16,7 @@ import (
 )
 
 func main() {
-	env.Load("")      // services/poller/.env when launched from services/poller
-	env.Load("../..") // monorepo-root .env fallback (missing file is ignored)
+	env.LoadDefaults()
 	ctx := context.Background()
 	if os.Getenv("DATABASE_URL") == "" {
 		log.Fatal("DATABASE_URL not set")

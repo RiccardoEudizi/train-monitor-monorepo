@@ -6,6 +6,14 @@ import { MAJOR_STATIONS } from "~/lib/stations-seed";
  * Nota: `0` NON è una regione — è il bucket "principali" dell'endpoint
  * elencoStazioni/0 (mix geografico). Viene normalizzato a "Sconosciuta"
  * ed escluso dai ranking regionali (vedi resolveRegion + fetchOverview).
+ *
+ * Single-source rule: il DB è la verità (`stations.region_id` scritto dal
+ * seeder, `daily_train_stats.region_id` congelato dal rollup). Questo file
+ * è solo fallback di lettura (nomi + override major per 0/NULL storici).
+ * Le correzioni geografiche vivono in
+ * `services/poller/cmd/seed/canonical_regions.go` — se cambi una regione,
+ * aggiorna entrambi e verifica che `MAJOR_REGION_OVERRIDE` sotto resti
+ * coerente.
  */
 export const REGION_NAMES: Record<number, string> = {
   1: "Lombardia",

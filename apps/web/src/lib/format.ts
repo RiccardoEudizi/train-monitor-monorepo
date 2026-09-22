@@ -1,35 +1,30 @@
 /** Small formatting helpers. All times rendered in Europe/Rome. */
+import { DELAY_HEAVY, DELAY_MIN } from "~/lib/thresholds";
 
 const tz = "Europe/Rome";
 
-export function fmtTime(iso: string | null): string {
-  if (!iso) return "--:--";
+function fmtClock(iso: string | null, withSeconds: boolean, fallback: string): string {
+  if (!iso) return fallback;
   try {
     return new Intl.DateTimeFormat("it-IT", {
       hour: "2-digit",
       minute: "2-digit",
+      ...(withSeconds ? { second: "2-digit" as const } : {}),
       hourCycle: "h23",
       timeZone: tz,
     }).format(new Date(iso));
   } catch {
-    return "--:--";
+    return fallback;
   }
+}
+
+export function fmtTime(iso: string | null): string {
+  return fmtClock(iso, false, "--:--");
 }
 
 /** Time with seconds: "14:56:36" (Europe/Rome, 24h). */
 export function fmtTimeSec(iso: string | null): string {
-  if (!iso) return "--:--:--";
-  try {
-    return new Intl.DateTimeFormat("it-IT", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hourCycle: "h23",
-      timeZone: tz,
-    }).format(new Date(iso));
-  } catch {
-    return "--:--:--";
-  }
+  return fmtClock(iso, true, "--:--:--");
 }
 
 /**
@@ -72,7 +67,7 @@ export function fmtDelay(min: number): string {
 }
 
 export function delayClass(min: number): string {
-  if (min >= 15) return "text-red-400";
-  if (min >= 1) return "text-amber-400";
+  if (min >= DELAY_HEAVY) return "text-red-400";
+  if (min >= DELAY_MIN) return "text-amber-400";
   return "text-emerald-400";
 }

@@ -1,4 +1,5 @@
 import { fetchLiveTrains } from "~/server/map-data";
+import { withApi } from "~/server/api-helpers";
 
 /**
  * GET /api/map/live — every traveling train with prev/next anchors.
@@ -6,10 +7,5 @@ import { fetchLiveTrains } from "~/server/map-data";
  * (see ~/lib/map/interpolate.ts).
  */
 export async function GET() {
-  try {
-    return Response.json(await fetchLiveTrains());
-  } catch (e) {
-    console.error("map live query failed", e);
-    return Response.json({ error: "map live query failed" }, { status: 500 });
-  }
+  return withApi(() => fetchLiveTrains(), "map live query failed");
 }

@@ -1,4 +1,5 @@
 /** Shared UI-ready shapes returned by /api/*. Never raw ViaggiaTreno. */
+import { DELAY_HEAVY, DELAY_MIN } from "~/lib/thresholds";
 
 export type TrainStato =
   | "ok"
@@ -152,8 +153,8 @@ export interface StationItem {
 export function statoFor(delay: number, provvedimento: number): TrainStato {
   if (provvedimento === 1) return "cancelled";
   if (provvedimento === 2) return "partial";
-  if (delay >= 15) return "heavily-delayed";
-  if (delay >= 1) return "delayed";
+  if (delay >= DELAY_HEAVY) return "heavily-delayed";
+  if (delay >= DELAY_MIN) return "delayed";
   return "ok";
 }
 

@@ -3,8 +3,8 @@ import { stations, stops } from "~/db/schema";
 import type { RegionStat } from "~/lib/api-types";
 import { statoFor } from "~/lib/api-types";
 import type { LiveTrain } from "~/lib/map/interpolate";
-import { normalizePeriodDays, DELAY_THRESHOLD } from "~/server/data";
-import { resolveRegion, regionName } from "~/lib/regions";
+import { periodSinceDate } from "~/server/period";
+import { aggregateByRegion, type PerRunRegion } from "~/lib/region-agg";
 import { db } from "~/server/db";
 
 /**
@@ -18,24 +18,12 @@ export interface MapRegionsRes {
   regions: RegionStat[];
 }
 
-interface PerRunRegion {
-  lastDelay: number | null;
-  regionId: number | null;
-  stationCode: string | null;
-}
-
 /** All regions with delay aggregates for the choropleth (no top-N slice). */
 export async function fetchMapRegions(period: string): Promise<MapRegionsRes> {
   const database = db();
   if (!database) return { period, dbConfigured: false, regions: [] };
 
-  const days = normalizePeriodDays(period);
-  const sinceDate =
-    days == null
-      ? null
-      : new Date(Date.now() - days * 24 * 3600 * 1000)
-          .toISOString()
-          .slice(0, 10);
+  const sinceDate = periodSinceDate(period);
 
   const raw = (await database.execute(sql`
     SELECT r.last_delay AS "lastDelay",
@@ -56,40 +44,7 @@ export async function fetchMapRegions(period: string): Promise<MapRegionsRes> {
   `)) as unknown as PerRunRegion[] | { rows: PerRunRegion[] };
   const perRun = Array.isArray(raw) ? raw : (raw.rows ?? []);
 
-  const byRegion = new Map<
-    number,
-    { regionId: number; runs: number; delayed: number; total: number; max: number }
-  >();
-  for (const row of perRun) {
-    const delay = row.lastDelay ?? 0;
-    const regionId = resolveRegion(row.stationCode, row.regionId);
-    // Come fetchOverview: escludi sconosciute / bucket "principali".
-    if (regionId == null) continue;
-    const agg = byRegion.get(regionId) ?? {
-      regionId,
-      runs: 0,
-      delayed: 0,
-      total: 0,
-      max: 0,
-    };
-    agg.runs += 1;
-    agg.total += delay;
-    if (delay > DELAY_THRESHOLD) agg.delayed += 1;
-    if (delay > agg.max) agg.max = delay;
-    byRegion.set(regionId, agg);
-  }
-
-  const regions: RegionStat[] = [...byRegion.values()]
-    .map((a) => ({
-      regionId: a.regionId,
-      name: regionName(a.regionId),
-      runs: a.runs,
-      delayedCount: a.delayed,
-      totalDelay: a.total,
-      avgDelay: a.runs ? Math.round((a.total / a.runs) * 10) / 10 : 0,
-      maxDelay: a.max,
-    }))
-    .sort((a, b) => b.totalDelay - a.totalDelay || b.delayedCount - a.delayedCount);
+  const regions = aggregateByRegion(perRun);
 
   return { period, dbConfigured: true, regions };
 }

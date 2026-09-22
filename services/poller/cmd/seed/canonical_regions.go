@@ -7,6 +7,11 @@ package main
 // NAPOLI in 5+18). Neither first-wins nor last-wins is correct, so these
 // win over whatever the fetch loop saw. Single-region and bucket-0-only
 // stations are unaffected.
+//
+// Single-source rule: this map + apps/web/src/lib/regions.ts are the two
+// region definitions — DB is truth at runtime, these two files are the
+// edit-time sources. If you fix a region here, mirror it in the web
+// MAJOR_REGION_OVERRIDE / REGION_NAMES path and vice versa.
 var canonicalRegion = map[string]int{
 	"S00034": 1,  // Mortara (PV)
 	"S00039": 1,  // Torreberetti (PV)

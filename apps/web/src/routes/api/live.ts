@@ -1,6 +1,7 @@
 import { fetchBoard, fetchDelays, fetchTrain } from "~/server/data";
-
-const POLL_MS = 12000;
+import { parseStationCode, parseTrainNumber } from "~/server/api-helpers";
+import { logError } from "~/server/log";
+import { POLL_MS } from "~/lib/map/interpolate";
 
 /** Serialize current snapshot for a scope via the shared data layer. */
 async function snapshot(station?: string, train?: string) {
@@ -28,7 +29,7 @@ async function snapshot(station?: string, train?: string) {
       dbConfigured: delays.dbConfigured,
     };
   } catch (e) {
-    console.error("live snapshot failed", e);
+    logError("live snapshot failed", e);
     return { updatedAt: new Date().toISOString(), trains: [], dbConfigured: false };
   }
 }
@@ -40,10 +41,8 @@ async function snapshot(station?: string, train?: string) {
  */
 export async function GET(event: { request: Request }) {
   const url = new URL(event.request.url);
-  const rawStation = (url.searchParams.get("station") ?? "").trim().toUpperCase();
-  const rawTrain = (url.searchParams.get("train") ?? "").trim();
-  const station = rawStation.replace(/[^A-Z0-9]/g, "") || undefined;
-  const train = rawTrain.replace(/[^0-9]/g, "") || undefined;
+  const station = parseStationCode(url.searchParams.get("station")) || undefined;
+  const train = parseTrainNumber(url.searchParams.get("train")) || undefined;
   const scope = station
     ? `station:${station}`
     : train

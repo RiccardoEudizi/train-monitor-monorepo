@@ -23,31 +23,15 @@ import {
 } from "~/components/ui";
 import type { StatsPeriod } from "~/lib/api-types";
 import { fmtTimeSec } from "~/lib/format";
-import { statoColor } from "~/lib/map/colors";
+import { CHORO_LEGEND, LIVE_LEGEND, statoColor } from "~/lib/map/colors";
 import type { LiveTrain } from "~/lib/map/interpolate";
+import { POLL_MS as LIVE_POLL_MS } from "~/lib/map/interpolate";
 import { getMapRegionsQuery } from "~/lib/queries";
 import { pageTitle } from "~/lib/seo";
 
 export const route = {
   preload: () => getMapRegionsQuery("30d"),
 } satisfies RouteDefinition;
-
-const LIVE_POLL_MS = 12000;
-
-const CHORO_LEGEND: Array<{ label: string; color: string }> = [
-  { label: "in orario", color: "#bbf7d0" },
-  { label: "+1–3'", color: "#fef08a" },
-  { label: "+3–7'", color: "#fed7aa" },
-  { label: "+7–15'", color: "#fda4af" },
-  { label: "+15'", color: "#fca5a5" },
-];
-
-const LIVE_LEGEND: Array<{ label: string; stato: string }> = [
-  { label: "in orario", stato: "ok" },
-  { label: "ritardo", stato: "delayed" },
-  { label: "forte ritardo", stato: "heavily-delayed" },
-  { label: "parziale/canc", stato: "partial" },
-];
 
 export default function MapPage() {
   const [period, setPeriod] = createSignal<StatsPeriod>("30d");

@@ -2,7 +2,8 @@ import { Link, Meta } from "@solidjs/meta";
 import { useLocation } from "@solidjs/router";
 import { canonicalUrl, SITE_NAME } from "~/lib/seo";
 
-/** Global head metadata, mounted once inside MetaProvider. */
+/** Global head metadata, mounted once inside MetaProvider.
+ * Pair with Seo (per-page tags): this owns canonical/charset/viewport/icons. */
 export default function SiteMeta() {
   const location = useLocation();
   const path = () => location.pathname.replace(/^(\/stazione\/)([^/]+)\/?$/, (_, prefix, code) => `${prefix}${code.toUpperCase()}`);

@@ -38,3 +38,20 @@ export function statoColor(stato: string): string {
       return "#34d399";
   }
 }
+
+/** Legend steps mirroring regionFill() thresholds — single source for /map. */
+export const CHORO_LEGEND: Array<{ label: string; color: string }> = [
+  { label: "in orario", color: "#bbf7d0" },
+  { label: "+1–3'", color: "#fef08a" },
+  { label: "+3–7'", color: "#fed7aa" },
+  { label: "+7–15'", color: "#fda4af" },
+  { label: "+15'", color: "#fca5a5" },
+];
+
+/** Legend states mirroring statoColor() — single source for /map. */
+export const LIVE_LEGEND: Array<{ label: string; stato: string }> = [
+  { label: "in orario", stato: "ok" },
+  { label: "ritardo", stato: "delayed" },
+  { label: "forte ritardo", stato: "heavily-delayed" },
+  { label: "parziale/canc", stato: "partial" },
+];

@@ -5,7 +5,6 @@ package vt
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -61,18 +60,9 @@ type BoardEntry struct {
 // The datetime format is the infamous JS-Date-like string ViaggiaTreno wants.
 func (c *Client) Board(ctx context.Context, kind, station string, t time.Time) ([]BoardEntry, error) {
 	stamp := t.In(RomeLoc).Format("Mon Jan 02 2006 15:04:05")
-	body, code, err := c.get(ctx, "/"+kind+"/"+station+"/"+url.PathEscape(stamp))
-	if err != nil {
-		return nil, err
-	}
-	if code == 204 || len(body) == 0 {
-		return nil, nil
-	}
-	if code != 200 {
-		return nil, fmt.Errorf("board %s %s: http %d", kind, station, code)
-	}
 	var out []BoardEntry
-	if err := json.Unmarshal(body, &out); err != nil {
+	ok, err := c.fetchJSON(ctx, "/"+kind+"/"+station+"/"+url.PathEscape(stamp), "board "+kind+" "+station, &out)
+	if err != nil || !ok {
 		return nil, err
 	}
 	return out, nil
@@ -166,18 +156,9 @@ func (a *Andamento) Cat() string {
 
 // AndamentoTreno fetches full detail. Returns (nil, nil) on 204 (cancelled/nodata).
 func (c *Client) AndamentoTreno(ctx context.Context, ref TrainRef) (*Andamento, error) {
-	body, code, err := c.get(ctx, fmt.Sprintf("/andamentoTreno/%s/%d/%d", ref.OrigineCode, ref.Numero, ref.Midnight))
-	if err != nil {
-		return nil, err
-	}
-	if code == 204 || len(body) == 0 {
-		return nil, nil
-	}
-	if code != 200 {
-		return nil, fmt.Errorf("andamento %d: http %d", ref.Numero, code)
-	}
 	var a Andamento
-	if err := json.Unmarshal(body, &a); err != nil {
+	ok, err := c.fetchJSON(ctx, fmt.Sprintf("/andamentoTreno/%s/%d/%d", ref.OrigineCode, ref.Numero, ref.Midnight), fmt.Sprintf("andamento %d", ref.Numero), &a)
+	if err != nil || !ok {
 		return nil, err
 	}
 	return &a, nil
@@ -198,15 +179,9 @@ type StationInfo struct {
 
 // ElencoStazioni lists stations for a region (0 = principals).
 func (c *Client) ElencoStazioni(ctx context.Context, region int) ([]StationInfo, error) {
-	body, code, err := c.get(ctx, fmt.Sprintf("/elencoStazioni/%d", region))
-	if err != nil {
-		return nil, err
-	}
-	if code != 200 {
-		return nil, fmt.Errorf("elencoStazioni %d: http %d", region, code)
-	}
 	var out []StationInfo
-	if err := json.Unmarshal(body, &out); err != nil {
+	_, err := c.fetchJSON(ctx, fmt.Sprintf("/elencoStazioni/%d", region), fmt.Sprintf("elencoStazioni %d", region), &out)
+	if err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -215,15 +190,9 @@ func (c *Client) ElencoStazioni(ctx context.Context, region int) ([]StationInfo,
 // Statistiche returns {treniGiorno, treniCircolanti}.
 func (c *Client) Statistiche(ctx context.Context) (map[string]any, error) {
 	ts := time.Now().UnixMilli()
-	body, code, err := c.get(ctx, fmt.Sprintf("/statistiche/%d", ts))
-	if err != nil {
-		return nil, err
-	}
-	if code != 200 {
-		return nil, fmt.Errorf("statistiche: http %d", code)
-	}
 	var out map[string]any
-	if err := json.Unmarshal(body, &out); err != nil {
+	_, err := c.fetchJSON(ctx, fmt.Sprintf("/statistiche/%d", ts), "statistiche", &out)
+	if err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -231,12 +200,5 @@ func (c *Client) Statistiche(ctx context.Context) (map[string]any, error) {
 
 // InfomobilitaTicker returns the raw HTML ticker fragment.
 func (c *Client) InfomobilitaTicker(ctx context.Context) (string, error) {
-	body, code, err := c.get(ctx, "/infomobilitaTicker")
-	if err != nil {
-		return "", err
-	}
-	if code != 200 {
-		return "", fmt.Errorf("ticker: http %d", code)
-	}
-	return string(body), nil
+	return c.fetchText(ctx, "/infomobilitaTicker", "ticker")
 }

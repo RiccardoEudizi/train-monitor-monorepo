@@ -29,16 +29,14 @@ pnpm install
 pnpm db:push           # create tables (drizzle, dev)
 pnpm dev
 # --- poller (another shell) ---
-psql $DATABASE_URL -f services/poller/migrations/001_schema.sql
-psql $DATABASE_URL -f services/poller/migrations/004_majors.sql
-for f in 005_drop_snapshots 006_daily_train_stats 007_daily_train_names 008_daily_train_stats_id; do
-  psql $DATABASE_URL -f services/poller/migrations/$f.sql  # existing DBs only
+for f in 001_schema 004_majors 005_drop_snapshots 006_daily_train_stats 007_daily_train_names 008_daily_train_stats_id; do
+  psql $DATABASE_URL -f services/poller/migrations/$f.sql  # fresh install
 done
 pnpm poller:seed       # all stations from elencoStazioni (never touches is_major)
 pnpm poller:run        # loop every POLL_INTERVAL_SECONDS (default 120)
 ```
 
-`003_tier2_majors.sql` is kept for existing DBs; fresh installs only need `004_majors.sql` (full 200-station list, single source of truth).
+Superseded one-shots (`002_*`, `003_*`) live in `services/poller/migrations/archive/` for old DBs only; `004_majors.sql` is the full 200-station list, single source of truth. See `services/poller/migrations/README.md`.
 
 ## Scripts
 

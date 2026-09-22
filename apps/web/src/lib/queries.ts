@@ -11,9 +11,8 @@ import { query } from "@solidjs/router";
 export const getDelaysQuery = query(async (min: number, cat: string, limit: number) => {
   "use server";
   const { fetchDelays } = await import("~/server/data");
-  const safeMin = Number.isFinite(min) ? min : 0;
-  const safeLimit = Number.isFinite(limit) ? limit : 50;
-  return fetchDelays(safeMin, cat ? cat.split(",") : [], safeLimit);
+  const { parseCats, parseLimit, parseMin } = await import("~/server/api-helpers");
+  return fetchDelays(parseMin(String(min)), parseCats(cat), parseLimit(String(limit)));
 }, "delays");
 
 export const getNewsQuery = query(async () => {

@@ -16,8 +16,7 @@ import (
 )
 
 func main() {
-	env.Load("")     // services/poller/.env when launched from services/poller
-	env.Load("../..") // monorepo-root .env fallback (missing file is ignored)
+	env.LoadDefaults()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

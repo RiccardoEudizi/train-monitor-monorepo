@@ -61,3 +61,10 @@ func Bool(key string, def bool) bool {
 	}
 	return def
 }
+
+// LoadDefaults loads services/poller/.env (when launched from services/poller)
+// then the monorepo-root .env fallback. Missing files are ignored.
+func LoadDefaults() {
+	Load("")
+	Load("../..")
+}

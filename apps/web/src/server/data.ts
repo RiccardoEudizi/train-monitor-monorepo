@@ -13,14 +13,17 @@ import type {
   NewsRes,
   OverviewRes,
   PeriodStats,
-  RegionStat,
   StationItem,
   TrainDetail,
 } from "~/lib/api-types";
 import { statoFor, temporalStatus } from "~/lib/api-types";
-import { resolveRegion, regionName } from "~/lib/regions";
+import { DELAY_THRESHOLD } from "~/lib/thresholds";
+import { aggregateByRegion } from "~/lib/region-agg";
 import { searchSeed, seedByCode } from "~/lib/stations-seed";
 import { db, dbConfigured } from "~/server/db";
+import { logError } from "~/server/log";
+import { periodSinceDate } from "~/server/period";
+import { avg, emptyStats, percentile, rate, toSeries } from "~/server/stats-shared";
 
 /**
  * Shared data access used by BOTH the /api/* route adapters and the
@@ -61,7 +64,7 @@ export async function searchStations(q: string): Promise<{
       dbConfigured: true,
     };
   } catch (e) {
-    console.error("stations query failed", e);
+    logError("stations query failed", e);
     return { stations: searchSeed(query), dbConfigured: true, degraded: true };
   }
 }
@@ -205,7 +208,7 @@ export async function fetchTrain(
       .orderBy(desc(dailyTrainStats.runDate))
       .limit(60);
   } catch (e) {
-    console.error("daily_train_stats read failed, hot-window only", e);
+    logError("daily_train_stats read failed, hot-window only", e);
   }
 
   if (liveRuns.length === 0 && rollupRuns.length === 0) {
@@ -551,61 +554,12 @@ export async function fetchDelays(
   };
 }
 
-const emptyStats: PeriodStats = {
-  runs: 0,
-  avgFinal: 0,
-  p95Final: 0,
-  maxFinal: 0,
-  avgMaxEnroute: 0,
-  avgRecupero: 0,
-  cancellRate: 0,
-  delayedCount: 0,
-  delayedRate: 0,
-  totalDelay: 0,
-  worstTrain: null,
-  series: [],
-};
-
-/** Soglia "in ritardo" per la panoramica home (richiesta: > 0'). */
-export const DELAY_THRESHOLD = 0;
-
-/**
- * Normalizza i periodi Ereignisse home + treno/stazione.
- * Home: "1d" | "7d" | "30d" | "total". Treno: "24h" | "7d" | "30d" | "all".
- * Ritorna i giorni di finestra, oppure null = tutto lo storico.
- */
-export function normalizePeriodDays(period: string): number | null {
-  const p = (period ?? "").trim().toLowerCase();
-  if (p === "24h" || p === "1d" || p === "day" || p === "daily") return 1;
-  if (p === "7d" || p === "week" || p === "7g") return 7;
-  if (p === "30d" || p === "month" || p === "30g") return 30;
-  if (p === "all" || p === "total" || p === "totale" || p === "tot") return null;
-  return 30;
-}
-
-function percentile(sorted: number[], p: number): number {
-  if (sorted.length === 0) return 0;
-  const i = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
-  return sorted[Math.max(0, i)];
-}
-
-function avg(values: number[]): number {
-  if (values.length === 0) return 0;
-  return Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10;
-}
-
 export async function fetchStats(
   scope: string,
   id: string,
   period: string,
 ): Promise<PeriodStats & { dbConfigured: boolean; period: string }> {
-  const days = normalizePeriodDays(period);
-  const sinceDate =
-    days == null
-      ? null
-      : new Date(Date.now() - days * 24 * 3600 * 1000)
-          .toISOString()
-          .slice(0, 10);
+  const sinceDate = periodSinceDate(period);
 
   const database = db();
   if (!database) {
@@ -776,21 +730,12 @@ export async function fetchStats(
       maxFinal,
       avgMaxEnroute: 0,
       avgRecupero: 0,
-      cancellRate: rows.length ? Math.round((cancelled / rows.length) * 1000) / 10 : 0,
+      cancellRate: rate(cancelled, rows.length),
       delayedCount,
-      delayedRate: rows.length
-        ? Math.round((delayedCount / rows.length) * 1000) / 10
-        : 0,
+      delayedRate: rate(delayedCount, rows.length),
       totalDelay,
       worstTrain,
-      series: [...byDay.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, d]) => ({
-          date,
-          avgFinal: d.n ? Math.round((d.sum / d.n) * 10) / 10 : 0,
-          maxFinal: d.max,
-          runs: d.n,
-        })),
+      series: toSeries(byDay),
       dbConfigured: true,
       period,
     };
@@ -832,10 +777,7 @@ export async function fetchStats(
               })
               .from(dailyTrainStats);
     } catch (e) {
-      console.error(
-        "daily_train_stats read failed, falling back to train_runs",
-        e,
-      );
+      logError("daily_train_stats read failed, falling back to train_runs", e);
     }
   }
   if (rows == null) {
@@ -886,20 +828,11 @@ export async function fetchStats(
     maxFinal: finals.length ? Math.max(...finals) : 0,
     avgMaxEnroute: avg(maxes),
     avgRecupero: Math.round(recupero * 10) / 10,
-    cancellRate: rows.length ? Math.round((cancelled / rows.length) * 1000) / 10 : 0,
+    cancellRate: rate(cancelled, rows.length),
     delayedCount,
-    delayedRate: rows.length
-      ? Math.round((delayedCount / rows.length) * 1000) / 10
-      : 0,
+    delayedRate: rate(delayedCount, rows.length),
     totalDelay,
-    series: [...byDay.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, d]) => ({
-        date,
-        avgFinal: d.n ? Math.round((d.sum / d.n) * 10) / 10 : 0,
-        maxFinal: d.max,
-        runs: d.n,
-      })),
+    series: toSeries(byDay),
     dbConfigured: true,
     period,
   };
@@ -930,13 +863,7 @@ export async function fetchOverview(period: string): Promise<OverviewRes> {
     };
   }
 
-  const days = normalizePeriodDays(period);
-  const sinceDate =
-    days == null
-      ? null
-      : new Date(Date.now() - days * 24 * 3600 * 1000)
-          .toISOString()
-          .slice(0, 10);
+  const sinceDate = periodSinceDate(period);
 
   // Una riga per corsa: ritardo finale + regione dell'ultimo rilevamento.
   // Bounded periods read live `train_runs`+`stops`; "total"/"all" reads the
@@ -962,10 +889,7 @@ export async function fetchOverview(period: string): Promise<OverviewRes> {
         })
         .from(dailyTrainStats);
     } catch (e) {
-      console.error(
-        "daily_train_stats read failed, falling back to train_runs",
-        e,
-      );
+      logError("daily_train_stats read failed, falling back to train_runs", e);
     }
   }
   if (perRun == null) {
@@ -989,45 +913,7 @@ export async function fetchOverview(period: string): Promise<OverviewRes> {
     perRun = Array.isArray(rawPerRun) ? rawPerRun : (rawPerRun.rows ?? []);
   }
 
-  const byRegion = new Map<
-    number,
-    { regionId: number; runs: number; delayed: number; total: number; max: number }
-  >();
-  for (const row of perRun) {
-    const delay = row.lastDelay ?? 0;
-    const regionId = resolveRegion(row.stationCode, row.regionId);
-    // Esclude sconosciute (NULL) e bucket "principali" (0 → null da
-    // resolveRegion): non sono regioni reali, restano nel nazionale.
-    if (regionId == null) continue;
-    const agg = byRegion.get(regionId) ?? {
-      regionId,
-      runs: 0,
-      delayed: 0,
-      total: 0,
-      max: 0,
-    };
-    agg.runs += 1;
-    agg.total += delay;
-    if (delay > DELAY_THRESHOLD) agg.delayed += 1;
-    if (delay > agg.max) agg.max = delay;
-    byRegion.set(regionId, agg);
-  }
-
-  const regions: RegionStat[] = [...byRegion.values()]
-    .map((a) => ({
-      regionId: a.regionId,
-      name: regionName(a.regionId),
-      runs: a.runs,
-      delayedCount: a.delayed,
-      totalDelay: a.total,
-      avgDelay: a.runs
-        ? Math.round((a.total / a.runs) * 10) / 10
-        : 0,
-      maxDelay: a.max,
-    }))
-    .sort(
-      (a, b) => b.totalDelay - a.totalDelay || b.delayedCount - a.delayedCount,
-    );
+  const regions = aggregateByRegion(perRun);
 
   return {
     period,
