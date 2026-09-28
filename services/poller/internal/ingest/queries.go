@@ -73,3 +73,28 @@ const cleanupRunsSQL = `DELETE FROM train_runs WHERE data_partenza < NOW() - mak
 const upsertInfoSQL = `
 	INSERT INTO info_news (kind, payload) VALUES ($1, $2)
 	ON CONFLICT (kind) DO UPDATE SET payload=EXCLUDED.payload, fetched_at=NOW()`
+
+const existsRunSQL = `
+	SELECT 1 FROM train_runs
+	WHERE numero = $1 AND origine_code = $2 AND data_partenza = $3
+	LIMIT 1`
+
+// Active runs: trains that can still change. Mirrors the web "ora" filter
+// (fetchDelays) with a slightly wider grace so the poller keeps writing the
+// final snapshot just after arrival. Cancelled runs (provvedimento=1) never
+// change again and are excluded.
+const selectActiveRunsSQL = `
+	SELECT numero, origine_code, data_partenza, orario_partenza, orario_arrivo,
+		last_delay, provvedimento, last_rilevamento_at
+	FROM train_runs
+	WHERE data_partenza >= CURRENT_DATE - INTERVAL '1 day'
+	  AND data_partenza <= CURRENT_DATE
+	  AND COALESCE(provvedimento, 0) != 1
+	  AND (
+	    orario_partenza IS NULL OR orario_arrivo IS NULL
+	    OR (
+	      orario_partenza <= NOW() + make_interval(mins => $1)
+	      AND orario_arrivo + make_interval(mins => GREATEST(COALESCE(last_delay, 0), 0))
+	          > NOW() - make_interval(mins => $2)
+	    )
+	  )`

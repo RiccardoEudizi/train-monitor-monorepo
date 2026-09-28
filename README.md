@@ -33,7 +33,7 @@ for f in 001_schema 004_majors 009_rfi_topup 005_drop_snapshots 006_daily_train_
   psql $DATABASE_URL -f services/poller/migrations/$f.sql  # fresh install
 done
 pnpm poller:seed       # all stations from elencoStazioni (never touches is_major)
-pnpm poller:run        # loop every POLL_INTERVAL_SECONDS (default 120)
+pnpm poller:run        # tiered scheduler: live trains every 40s, discovery every 5m
 ```
 
 Superseded one-shots (`002_*`, `003_*`) live in `services/poller/migrations/archive/` for old DBs only; `004_majors.sql` (200 stations) + `009_rfi_topup.sql` (60 stations, all remaining RFI MAIN HUB / HUB / MAJOR stations) are the full 260-station list, single source of truth. See `services/poller/migrations/README.md`.
@@ -53,7 +53,9 @@ Superseded one-shots (`002_*`, `003_*`) live in `services/poller/migrations/arch
 | Var | Default | Meaning |
 |---|---|---|
 | `DATABASE_URL` | — | Postgres connection string (required, shared; on Neon use the pooled string) |
-| `POLL_INTERVAL_SECONDS` | `120` | Seconds between poller cycles |
+| `ACTIVE_INTERVAL_SECONDS` | `40` | Refresh live trains; changed runs only (`POLL_INTERVAL_SECONDS` deprecated alias) |
+| `DISCOVERY_INTERVAL_SECONDS` | `300` | Board sweep for new trains (known runs skipped) |
+| `ROLLUP_INTERVAL_SECONDS` | `600` | Fold today's data into `daily_*` aggregates |
 | `WORKERS` | `25` | Max concurrent ViaggiaTreno requests |
 | `MAJORS_ONLY` | `true` | Poll only `is_major` stations; `false` sweeps all seeded stations |
 
