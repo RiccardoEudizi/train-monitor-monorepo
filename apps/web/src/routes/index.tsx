@@ -166,8 +166,10 @@ export default function Home() {
                 </span>
                 <span>
                   <span class="text-2xl font-bold">
-                    <PixelValue value={`${delays()?.items.length ?? 0}`}>
-                      {delays()?.items.length ?? 0}
+                    <PixelValue
+                      value={`${delays()?.totalRitardati ?? 0}`}
+                    >
+                      {delays()?.totalRitardati ?? 0}
                     </PixelValue>
                   </span>{" "}
                   <span class="text-zinc-500">in ritardo ora</span>

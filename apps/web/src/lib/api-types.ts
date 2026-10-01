@@ -161,6 +161,11 @@ export function statoFor(delay: number, provvedimento: number): TrainStato {
 export interface DelaysRes {
   updatedAt: string;
   totalCircolanti: number;
+  /** Real COUNT(*) of runs matching the same window as `items` — NOT
+   * `items.length`, which is the ranking truncated to `limit`. Null only when
+   * the caller opts out of the count (see fetchDelays `opts.skipTotal`) to keep
+   * the SSE hot path on a single query. */
+  totalRitardati: number | null;
   items: TrainCard[];
   dbConfigured: boolean;
 }

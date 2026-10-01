@@ -22,7 +22,9 @@ async function snapshot(station?: string, train?: string) {
         dbConfigured: detail.dbConfigured,
       };
     }
-    const delays = await fetchDelays(0, [], 50);
+    // skipTotal: this runs every 12s per connected client and only needs the
+    // ranking rows — the COUNT(*) pass would be pure overhead here.
+    const delays = await fetchDelays(0, [], 50, { skipTotal: true });
     return {
       updatedAt: delays.updatedAt,
       trains: delays.items,

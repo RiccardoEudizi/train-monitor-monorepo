@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, ilike, inArray, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, ilike, inArray, or, sql } from "drizzle-orm";
 import {
   dailyStopStats,
   dailyTrainStats,
@@ -469,16 +469,20 @@ export async function fetchTrain(
   };
 }
 
+/** `skipTotal` drops the COUNT(*) pass — for callers that only need the
+ * ranking rows and run on a timer (SSE polls every 12s per client). */
 export async function fetchDelays(
   min: number,
   cats: string[],
   limit: number,
+  opts?: { skipTotal?: boolean },
 ): Promise<DelaysRes & { dbConfigured: boolean }> {
   const database = db();
   if (!database) {
     return {
       updatedAt: new Date().toISOString(),
       totalCircolanti: 0,
+      totalRitardati: 0,
       items: [],
       dbConfigured: false,
     };
@@ -504,12 +508,27 @@ export async function fetchDelays(
   conditions.push(
     sql`${trainRuns.orarioArrivo} + make_interval(mins => GREATEST(COALESCE(${trainRuns.lastDelay}, 0), 0)) > NOW() - INTERVAL '3 minutes'`,
   );
+  const where = sql.join(conditions, sql` AND `);
+
   const rows = await database
     .select()
     .from(trainRuns)
-    .where(sql.join(conditions, sql` AND `))
+    .where(where)
     .orderBy(desc(trainRuns.lastDelay))
     .limit(safeLimit);
+
+  // Real number of delayed runs in this window. `rows.length` is the ranking
+  // capped at `limit`, so counting in JS would report 20 for hundreds of
+  // delayed trains. Same WHERE, no LIMIT, no ORDER BY — one extra query,
+  // skipped on the SSE hot path (see opts.skipTotal).
+  let totalRitardati: number | null = null;
+  if (!opts?.skipTotal) {
+    const [countRow] = await database
+      .select({ n: count() })
+      .from(trainRuns)
+      .where(where);
+    totalRitardati = Number(countRow?.n ?? 0);
+  }
 
   let totalCircolanti = rows.length;
   try {
@@ -527,6 +546,7 @@ export async function fetchDelays(
   return {
     updatedAt: new Date().toISOString(),
     totalCircolanti,
+    totalRitardati,
     items: rows.map((r) => {
       const delayStato = statoFor(r.lastDelay ?? 0, r.provvedimento ?? 0);
       const temporal = temporalStatus(r.orarioPartenza?.toISOString() ?? null, r.orarioArrivo?.toISOString() ?? null, new Date(), r.lastDelay ?? 0);
