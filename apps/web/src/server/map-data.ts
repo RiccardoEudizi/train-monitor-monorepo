@@ -103,12 +103,50 @@ function toISO(v: unknown): string | null {
 }
 
 /**
+ * TTL for the live snapshot cache. The poller only refreshes circulating
+ * trains every ACTIVE_INTERVAL_SECONDS (40s), so 10s is well inside one
+ * source update: the cache can never serve data the poller had already
+ * replaced, it only collapses repeated reads of the same snapshot.
+ */
+const LIVE_TTL_MS = 10_000;
+
+let liveCache: { at: number; res: LiveTrainsRes } | null = null;
+let liveInFlight: Promise<LiveTrainsRes> | null = null;
+
+/**
+ * Every currently traveling train, memoized for LIVE_TTL_MS.
+ *
+ * This is the heaviest read in the app (up to 2000 runs + every stop of each
+ * + station coords) and it has two callers that want the SAME snapshot: the
+ * /map 12s poll and the homepage hero (SSR + revalidated on the SSE tick).
+ * Without the cache each caller scans independently, and after a TTL expiry
+ * a burst of concurrent requests would fan out into N identical scans — so
+ * misses are single-flighted through `liveInFlight` as well.
+ *
+ * Failures are never cached: `.then` stores the value only on success, and
+ * `.finally` drops the in-flight handle either way.
+ */
+export function fetchLiveTrains(): Promise<LiveTrainsRes> {
+  const hit = liveCache;
+  if (hit && Date.now() - hit.at < LIVE_TTL_MS) return Promise.resolve(hit.res);
+  liveInFlight ??= computeLiveTrains()
+    .then((res) => {
+      liveCache = { at: Date.now(), res };
+      return res;
+    })
+    .finally(() => {
+      liveInFlight = null;
+    });
+  return liveInFlight;
+}
+
+/**
  * Every currently traveling train with prev/next anchors for the
  * interpolation formula (see ~/lib/map/interpolate.ts):
  * prev = last stop with actual arr/dep (or origin departure),
  * next = first upcoming stop (scheduled time).
  */
-export async function fetchLiveTrains(): Promise<LiveTrainsRes> {
+async function computeLiveTrains(): Promise<LiveTrainsRes> {
   const updatedAt = new Date().toISOString();
   const database = db();
   if (!database) {
