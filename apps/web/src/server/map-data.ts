@@ -1,8 +1,8 @@
 import { inArray, sql } from "drizzle-orm";
 import { stations, stops } from "~/db/schema";
-import type { RegionStat } from "~/lib/api-types";
+import type { RegionStat, TrainStato } from "~/lib/api-types";
 import { statoFor } from "~/lib/api-types";
-import type { LiveTrain } from "~/lib/map/interpolate";
+import type { LiveCounts, LiveTrain } from "~/lib/map/interpolate";
 import { periodSinceDate } from "~/server/period";
 import { aggregateByRegion, type PerRunRegion } from "~/lib/region-agg";
 import { db } from "~/server/db";
@@ -49,9 +49,36 @@ export async function fetchMapRegions(period: string): Promise<MapRegionsRes> {
   return { period, dbConfigured: true, regions };
 }
 
+/**
+ * Counts derived from the SAME `trains` array that becomes the 3D map's
+ * dots, so `total` is by construction the number of dots drawn and the
+ * homepage hero can never disagree with /map. See LiveCounts in
+ * ~/lib/map/interpolate (shared by client and server).
+ */
+function countTrains(trains: LiveTrain[]): LiveCounts {
+  const byStato: Record<TrainStato, number> = {
+    ok: 0,
+    delayed: 0,
+    "heavily-delayed": 0,
+    cancelled: 0,
+    partial: 0,
+    nodata: 0,
+  };
+  for (const t of trains) {
+    const k = t.stato as TrainStato;
+    byStato[k] = (byStato[k] ?? 0) + 1;
+  }
+  return {
+    total: trains.length,
+    inRitardo: byStato.delayed + byStato["heavily-delayed"],
+    byStato,
+  };
+}
+
 export interface LiveTrainsRes {
   updatedAt: string;
   dbConfigured: boolean;
+  counts: LiveCounts;
   trains: LiveTrain[];
 }
 
@@ -84,7 +111,9 @@ function toISO(v: unknown): string | null {
 export async function fetchLiveTrains(): Promise<LiveTrainsRes> {
   const updatedAt = new Date().toISOString();
   const database = db();
-  if (!database) return { updatedAt, dbConfigured: false, trains: [] };
+  if (!database) {
+    return { updatedAt, dbConfigured: false, counts: countTrains([]), trains: [] };
+  }
 
   const rawRuns = (await database.execute(sql`
     SELECT r.id AS "id",
@@ -106,7 +135,9 @@ export async function fetchLiveTrains(): Promise<LiveTrainsRes> {
       orarioArrivo: toISO(r.orarioArrivo),
     }),
   );
-  if (runs.length === 0) return { updatedAt, dbConfigured: true, trains: [] };
+  if (runs.length === 0) {
+    return { updatedAt, dbConfigured: true, counts: countTrains([]), trains: [] };
+  }
 
   const runIds = runs.map((r) => r.id);
   const stopRows = await database
@@ -214,5 +245,5 @@ export async function fetchLiveTrains(): Promise<LiveTrainsRes> {
     });
   }
 
-  return { updatedAt, dbConfigured: true, trains };
+  return { updatedAt, dbConfigured: true, counts: countTrains(trains), trains };
 }

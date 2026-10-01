@@ -48,10 +48,15 @@ export const CHORO_LEGEND: Array<{ label: string; color: string }> = [
   { label: "+15'", color: "#fca5a5" },
 ];
 
-/** Legend states mirroring statoColor() — single source for /map. */
+/**
+ * Legend states mirroring statoColor() — single source for /map.
+ * Covers every stato statoFor() can return except "nodata" (never emitted),
+ * so the per-status counts sum exactly to the "in viaggio" total.
+ */
 export const LIVE_LEGEND: Array<{ label: string; stato: string }> = [
   { label: "in orario", stato: "ok" },
   { label: "ritardo", stato: "delayed" },
   { label: "forte ritardo", stato: "heavily-delayed" },
-  { label: "parziale/canc", stato: "partial" },
+  { label: "parziale", stato: "partial" },
+  { label: "cancellato", stato: "cancelled" },
 ];

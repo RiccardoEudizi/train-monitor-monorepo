@@ -24,7 +24,7 @@ import {
 import type { StatsPeriod } from "~/lib/api-types";
 import { fmtTimeSec } from "~/lib/format";
 import { CHORO_LEGEND, LIVE_LEGEND, statoColor } from "~/lib/map/colors";
-import type { LiveTrain } from "~/lib/map/interpolate";
+import type { LiveCounts, LiveTrain } from "~/lib/map/interpolate";
 import { POLL_MS as LIVE_POLL_MS } from "~/lib/map/interpolate";
 import { getMapRegionsQuery } from "~/lib/queries";
 import { pageTitle } from "~/lib/seo";
@@ -43,6 +43,9 @@ export default function MapPage() {
   const [trains, setTrains] = createSignal<LiveTrain[]>([]);
   const [liveAt, setLiveAt] = createSignal<string | null>(null);
   const [liveOk, setLiveOk] = createSignal(true);
+  // Counts come from the same response as the dots (server-side tally of the
+  // very array we render), so the header can't drift from what is drawn.
+  const [counts, setCounts] = createSignal<LiveCounts | null>(null);
   onMount(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
     const tick = async () => {
@@ -51,9 +54,11 @@ export default function MapPage() {
         if (!r.ok) throw new Error(`http ${r.status}`);
         const j = (await r.json()) as {
           trains: LiveTrain[];
+          counts: LiveCounts;
           updatedAt: string;
         };
         setTrains(j.trains ?? []);
+        setCounts(j.counts ?? null);
         setLiveAt(j.updatedAt ?? new Date().toISOString());
         setLiveOk(true);
       } catch {
@@ -66,8 +71,8 @@ export default function MapPage() {
   });
 
   const worst = () => regions.latest?.regions[0] ?? null;
-  const liveCount = (stato: string) =>
-    trains().filter((t) => t.stato === stato).length;
+  const liveCount = (stato: string) => counts()?.byStato[stato] ?? 0;
+  const liveTotal = () => counts()?.total ?? trains().length;
 
   return (
     <main class="mx-auto max-w-5xl px-4 pb-16">
@@ -159,7 +164,7 @@ export default function MapPage() {
           <SectionTitle
             right={
               <span class="tabular-nums">
-                {trains().length} in viaggio
+                {liveTotal()} in viaggio
                 {liveAt() ? ` · ${fmtTimeSec(liveAt())}` : ""}
               </span>
             }

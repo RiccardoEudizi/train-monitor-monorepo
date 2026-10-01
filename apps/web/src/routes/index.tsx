@@ -26,7 +26,7 @@ import {
 import { AsciiFx, PixelValue } from "~/components/fx";
 import Seo from "~/components/Seo";
 import type { StationItem, StatsPeriod } from "~/lib/api-types";
-import { getDelaysQuery, getNewsQuery, getOverviewQuery } from "~/lib/queries";
+import { getDelaysQuery, getLiveCountsQuery, getNewsQuery, getOverviewQuery } from "~/lib/queries";
 import { pageTitle, SITE_DESCRIPTION } from "~/lib/seo";
 import { useLive } from "~/lib/sse";
 
@@ -40,6 +40,7 @@ export const route = {
   preload: () =>
     Promise.allSettled([
       getDelaysQuery(1, "", 20),
+      getLiveCountsQuery(),
       getNewsQuery(),
       getOverviewQuery("30d"),
     ]),
@@ -75,6 +76,11 @@ export default function Home() {
   });
 
   const delays = createAsync(() => getDelaysQuery(1, "", 20), {
+    deferStream: true,
+  });
+  // Hero counters — same source as the 3D map (see getLiveCountsQuery), so
+  // "in viaggio" here and "in viaggio" on /map are the same snapshot count.
+  const liveCounts = createAsync(() => getLiveCountsQuery(), {
     deferStream: true,
   });
   const news = createAsync(() => getNewsQuery(), { deferStream: true });
@@ -131,6 +137,7 @@ export default function Home() {
       if (msg.heartbeat) return;
       markOvFetching();
       revalidate(getDelaysQuery.key);
+      revalidate(getLiveCountsQuery.key);
       revalidate(getNewsQuery.key);
       revalidate(getOverviewQuery.key);
     },
@@ -155,19 +162,19 @@ export default function Home() {
         <div class="mt-4 flex flex-wrap items-center gap-4 text-sm tabular-nums">
           <ErrorBoundary fallback={<ErrorBox message="contatori non disponibili" />}>
             <Suspense fallback={<Spinner label="loading" />}>
-              <Show when={delays()}>
+              <Show when={liveCounts()}>
                 <span>
                   <span class="text-2xl font-bold">
-                    <PixelValue value={`${delays()?.totalCircolanti ?? 0}`}>
-                      {delays()?.totalCircolanti ?? 0}
+                    <PixelValue value={`${liveCounts()?.total ?? 0}`}>
+                      {liveCounts()?.total ?? 0}
                     </PixelValue>
                   </span>{" "}
-                  <span class="text-zinc-500">treni circolanti</span>
+                  <span class="text-zinc-500">treni in viaggio</span>
                 </span>
                 <span>
                   <span class="text-2xl font-bold">
-                    <PixelValue value={`${delays()?.items.length ?? 0}`}>
-                      {delays()?.items.length ?? 0}
+                    <PixelValue value={`${liveCounts()?.inRitardo ?? 0}`}>
+                      {liveCounts()?.inRitardo ?? 0}
                     </PixelValue>
                   </span>{" "}
                   <span class="text-zinc-500">in ritardo ora</span>

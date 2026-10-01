@@ -22,6 +22,8 @@
  *    onto the new segment — never reset to p=0.
  */
 
+import type { TrainStato } from "~/lib/api-types";
+
 export interface MapAnchor {
   lat: number;
   lon: number;
@@ -40,7 +42,26 @@ export interface LiveTrain {
   updatedAt: string;
 }
 
-/** Live poll interval of the /map page. */
+/**
+ * Counts tallied on the server from the very `LiveTrain[]` that becomes the
+ * 3D map's dots, so `total` is by construction the number of dots drawn and
+ * the homepage hero can never disagree with /map.
+ *
+ * `inRitardo` = stato "delayed" + "heavily-delayed", i.e. the map legend's
+ * ritardo + forte ritardo — the delayed subset of the traveling trains.
+ * Trains still waiting to depart are NOT counted: the live window starts at
+ * `orario_partenza <= NOW()`, so this is "delayed while traveling", not
+ * "delayed nationwide".
+ */
+export interface LiveCounts {
+  /** Traveling now with resolvable prev/next anchors == dots on the map. */
+  total: number;
+  /** Subset with delay >= DELAY_MIN. */
+  inRitardo: number;
+  byStato: Record<TrainStato, number>;
+}
+
+/** Live poll interval of the /map page and the homepage hero counters. */
 export const POLL_MS = 12_000;
 /** Station dwell at each end of a leg. */
 export const DWELL_MS = 45_000;

@@ -50,3 +50,16 @@ export const getMapRegionsQuery = query(async (period: string) => {
   const { fetchMapRegions } = await import("~/server/map-data");
   return fetchMapRegions(period);
 }, "map-regions");
+
+/**
+ * Homepage hero counters. Same server function as /map renders its dots
+ * (fetchLiveTrains), so the two pages report the same number for the same
+ * snapshot by construction — not two queries that happen to look alike.
+ * Only the counts cross the wire; the trains array stays with /map.
+ */
+export const getLiveCountsQuery = query(async () => {
+  "use server";
+  const { fetchLiveTrains } = await import("~/server/map-data");
+  const { counts, updatedAt, dbConfigured } = await fetchLiveTrains();
+  return { ...counts, updatedAt, dbConfigured };
+}, "live-counts");
