@@ -8,6 +8,27 @@ import { createSignal, createEffect, onMount, Show, type JSX } from "solid-js";
  *   transitions only fire client-side after mount + value change.
  */
 
+/**
+ * Hydration detection:
+ * - During SSR, components in the initial HTML render synchronously.
+ * - During hydration, Solid walks the tree and mounts components that exist in the DOM.
+ * - Components inside unresolved `<Suspense>` boundaries are NOT in the initial HTML;
+ *   they mount later (client-only) when their promise resolves.
+ *
+ * Strategy: use a microtask to mark "hydration complete". All components mounting
+ * synchronously during the initial hydration pass will run before the microtask.
+ * Components mounting after (e.g. Suspense resolution) will see the flag as true.
+ */
+let hydrationComplete = false;
+let hydrationScheduled = false;
+function scheduleHydrationComplete() {
+  if (hydrationScheduled) return;
+  hydrationScheduled = true;
+  queueMicrotask(() => {
+    hydrationComplete = true;
+  });
+}
+
 /** Client capability probe. */
 export function useFxSupport() {
   const [mounted, setMounted] = createSignal(false);
@@ -37,7 +58,17 @@ export function PixelValue(props: {
   const fx = useFxSupport();
   const [prev, setPrev] = createSignal(props.value);
   const [phase, setPhase] = createSignal<"idle" | "swap">("idle");
+  const [showEntrance, setShowEntrance] = createSignal(false);
   let timer: ReturnType<typeof setTimeout> | undefined;
+
+  // Track hydration: synchronous mounts during initial hydration pass
+  // run before the microtask; async mounts (Suspense resolution) run after.
+  onMount(() => {
+    scheduleHydrationComplete();
+    if (hydrationComplete) {
+      setShowEntrance(true);
+    }
+  });
 
   createEffect(() => {
     const next = props.value;
@@ -62,7 +93,7 @@ export function PixelValue(props: {
   const showSwap = () => phase() === "swap" && prev() !== props.value;
 
   return (
-    <span class={`fx-pixel-wrap ${props.class ?? ""}`}>
+    <span class={`fx-pixel-wrap ${props.class ?? ""} ${showEntrance() ? "fx-pixel-entrance" : ""}`}>
       <Show when={showSwap()} fallback={<span class="fx-pixel-idle">{props.children}</span>}>
         {/* Old value dissolves out (blocky, behind). */}
         <span aria-hidden="true" class="fx-pixel-old">
@@ -85,7 +116,16 @@ export function AsciiFx(props: {
   const fx = useFxSupport();
   const [key, setKey] = createSignal(props.watch);
   const [entering, setEntering] = createSignal(false);
+  const [showEntrance, setShowEntrance] = createSignal(false);
   let timer: ReturnType<typeof setTimeout> | undefined;
+
+  // Track hydration: same logic as PixelValue.
+  onMount(() => {
+    scheduleHydrationComplete();
+    if (hydrationComplete) {
+      setShowEntrance(true);
+    }
+  });
 
   createEffect(() => {
     const next = props.watch;
@@ -106,7 +146,7 @@ export function AsciiFx(props: {
 
   return (
     <div
-      class={`fx-ascii w-full max-w-full min-w-0 overflow-hidden ${entering() ? "fx-ascii-enter" : ""}`}
+      class={`fx-ascii w-full max-w-full min-w-0 overflow-hidden ${showEntrance() ? "fx-ascii-entrance" : ""} ${entering() ? "fx-ascii-enter" : ""}`}
       style={entering() ? { "animation-delay": `${props.delayMs ?? 0}ms` } : undefined}
     >
       {props.children}

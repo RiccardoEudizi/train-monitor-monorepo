@@ -63,9 +63,11 @@ body {
   position: relative;
   display: inline-block;
   image-rendering: pixelated;
-  /* Entrance: plays on DOM insertion (e.g. reappearing after a skeleton),
-     while in-place value changes use the old/new layer dissolve below.
-     Hydrated SSR nodes are not re-inserted, so no flash on first paint. */
+}
+
+.fx-pixel-entrance {
+  /* Entrance: plays on DOM insertion for client-only mounts
+     (e.g. reappearing after a skeleton). Not on initial hydration. */
   animation: fx-pixel-in 260ms steps(7) both;
 }
 
@@ -144,10 +146,14 @@ body {
   }
 }
 
-/* ASCII charts: blur + fade add/remove. Base animation covers insertion
-   (e.g. after skeletons); `.fx-ascii-enter` re-fires it on data change. */
+/* ASCII charts: blur + fade add/remove.
+   - `.fx-ascii-entrance`: plays on DOM insertion for client-only mounts (not hydration).
+   - `.fx-ascii-enter`: re-fires on data change. */
 .fx-ascii {
   will-change: filter, opacity;
+}
+
+.fx-ascii-entrance {
   animation: fx-ascii-in 280ms ease-out both;
 }
 
@@ -170,9 +176,11 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .fx-pixel-wrap,
+  .fx-pixel-entrance,
   .fx-pixel-old,
   .fx-pixel-new,
   .fx-ascii,
+  .fx-ascii-entrance,
   .fx-ascii-enter,
   .palette-overlay,
   .palette-content {
