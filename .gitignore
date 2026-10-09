@@ -31,3 +31,6 @@ bin/
 # System files
 .DS_Store
 Thumbs.db
+
+# Railway fetch cache (large intermediate; regenerate with `pnpm run fetch:railways`)
+apps/web/scripts/.railways-cache.json

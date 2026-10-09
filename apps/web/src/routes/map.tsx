@@ -46,6 +46,10 @@ export default function MapPage() {
   // Counts come from the same response as the dots (server-side tally of the
   // very array we render), so the header can't drift from what is drawn.
   const [counts, setCounts] = createSignal<LiveCounts | null>(null);
+
+  // Toggle visibility of railway tracks and station markers
+  const [showTracks, setShowTracks] = createSignal(true);
+  const [showStations, setShowStations] = createSignal(true);
   onMount(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
     const tick = async () => {
@@ -172,7 +176,7 @@ export default function MapPage() {
             treni live
           </SectionTitle>
           <div class="relative aspect-[360/440] overflow-hidden rounded border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-[#09090b]">
-            <LiveMap3D trains={trains()} />
+            <LiveMap3D trains={trains()} showTracks={showTracks()} showStations={showStations()} />
             <DitherOverlay animated={false} amount={1.1} />
             <Show when={trains().length === 0}>
               <p class="pointer-events-none absolute inset-x-0 bottom-2 text-center text-[11px] text-zinc-500">
@@ -196,9 +200,18 @@ export default function MapPage() {
               )}
             </For>
           </div>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <Chip active={showTracks()} onClick={() => setShowTracks(!showTracks())}>
+              binari
+            </Chip>
+            <Chip active={showStations()} onClick={() => setShowStations(!showStations())}>
+              fermate
+            </Chip>
+          </div>
           <p class="mt-2 text-[11px] leading-relaxed text-zinc-500">
             posizione interpolata tra ultima e prossima fermata ·
-            aggiornamento ogni 12s · confini ISTAT via openpolis (CC-BY 4.0)
+            aggiornamento ogni 12s · confini ISTAT via openpolis (CC-BY 4.0) ·
+            binari OSM (ODbL 1.0)
           </p>
         </Card>
       </div>

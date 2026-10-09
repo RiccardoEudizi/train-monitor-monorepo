@@ -10,7 +10,10 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "fetch:railways": "tsx scripts/fetch-railways.ts",
+    "fetch:stations": "tsx scripts/fetch-stations.ts",
+    "convert:railways": "tsx scripts/convert-railways.ts"
   },
   "dependencies": {
     "@fontsource/geist-mono": "^5.3.0",

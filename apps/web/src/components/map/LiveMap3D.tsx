@@ -1,4 +1,4 @@
-import { createEffect, onCleanup, onMount } from "solid-js";
+import { createSignal, onCleanup, onMount } from "solid-js";
 import type * as THREE from "three";
 import { ITALY_REGIONS, MAP_BOUNDS } from "~/lib/map/italy-regions";
 import { dissolvedRegion } from "~/lib/map/dissolve";
@@ -11,6 +11,8 @@ import {
   type MotionState,
 } from "~/lib/map/interpolate";
 import { statoColor } from "~/lib/map/colors";
+import { loadRailwaySegments, type RailwaySegment } from "~/lib/map/italy-railways";
+import { loadStationMarkers, type StationMarker } from "~/lib/map/italy-stations";
 
 /**
  * Map 2: true 3D Italy. Regions are extruded slabs (real ISTAT
@@ -25,7 +27,11 @@ import { statoColor } from "~/lib/map/colors";
 const MAX = 2048;
 const WORLD = 140; // world units across the bounds square
 const SLAB = 2.5; // extrusion height
-const HOVER_Y = 3.6; // train dot altitude: just above the slab top
+// Everything on the map must sit ABOVE the slab top (y = SLAB), otherwise
+// it is occluded by the extruded regions.
+const TRACK_Y = SLAB + 0.1; // railway lines: just above the slab top
+const STATION_Y = SLAB + 0.16; // station markers: a touch higher
+const HOVER_Y = 3.6; // train dot altitude: above tracks/stations
 
 function toWorld(lon: number, lat: number): [number, number] {
   const x =
@@ -39,15 +45,17 @@ function toWorld(lon: number, lat: number): [number, number] {
   return [x, z];
 }
 
+// Base point sizes in the same units as the station markers (major 2.0,
+// minor 1.2): train dots are kept small, with a subtle status bump.
 function sizeForStato(stato: string): number {
   switch (stato) {
     case "heavily-delayed":
-      return 3.5;
+      return 2.2;
     case "delayed":
     case "partial":
-      return 3;
+      return 1.8;
     default:
-      return 2.5;
+      return 1.4;
   }
 }
 function hexToRgb(hex: string): [number, number, number] {
@@ -55,13 +63,76 @@ function hexToRgb(hex: string): [number, number, number] {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
 
-export default function LiveMap3D(props: { trains: LiveTrain[] }) {
+/**
+ * Liang–Barsky clip of segment (x1,z1)→(x2,z2) to an axis-aligned
+ * rectangle. Returns the clipped endpoints, or null if fully outside.
+ * Used to trim railway lines at the edge of the map bounds.
+ */
+function clipSegmentToRect(
+  x1: number,
+  z1: number,
+  x2: number,
+  z2: number,
+  minX: number,
+  maxX: number,
+  minZ: number,
+  maxZ: number,
+): [number, number, number, number] | null {
+  let t0 = 0;
+  let t1 = 1;
+  const dx = x2 - x1;
+  const dz = z2 - z1;
+  const p = [-dx, dx, -dz, dz];
+  const q = [x1 - minX, maxX - x1, z1 - minZ, maxZ - z1];
+
+  for (let i = 0; i < 4; i++) {
+    if (p[i] === 0) {
+      if (q[i] < 0) return null; // parallel and outside this edge
+    } else {
+      const r = q[i] / p[i];
+      if (p[i] < 0) {
+        if (r > t1) return null;
+        if (r > t0) t0 = r;
+      } else {
+        if (r < t0) return null;
+        if (r < t1) t1 = r;
+      }
+    }
+  }
+
+  return [x1 + t0 * dx, z1 + t0 * dz, x1 + t1 * dx, z1 + t1 * dz];
+}
+
+export default function LiveMap3D(props: {
+  trains: LiveTrain[];
+  showTracks?: boolean;
+  showStations?: boolean;
+}) {
   let canvas: HTMLCanvasElement | undefined;
   const dark = useDark();
+  const [railwaySegments, setRailwaySegments] = createSignal<RailwaySegment[]>([]);
+  const [stationMarkers, setStationMarkers] = createSignal<StationMarker[]>([]);
 
   onMount(() => {
     let cancelled = false;
+    // Disposal for the async-created three.js resources. Registered through
+    // the synchronous onCleanup below so it runs inside the reactive owner.
+    let disposeScene: (() => void) | undefined;
     const motion = new Map<number, MotionState>();
+
+    // Load railway geometry asynchronously (fetched from /data/railways.json)
+    loadRailwaySegments()
+      .then((segments) => {
+        if (!cancelled) setRailwaySegments(segments);
+      })
+      .catch((err) => console.error("Failed to load railways:", err));
+
+    // Load station markers asynchronously (fetched from /data/stations.json)
+    loadStationMarkers()
+      .then((stations) => {
+        if (!cancelled) setStationMarkers(stations);
+      })
+      .catch((err) => console.error("Failed to load stations:", err));
 
     (async () => {
       const T = await import("three");
@@ -72,6 +143,8 @@ export default function LiveMap3D(props: { trains: LiveTrain[] }) {
       const el = canvas;
       const parent = el.parentElement;
 
+      // WebGL2 renderer. (WebGPU cannot rasterise point primitives larger
+      // than 1px, so the glow dots must use GLSL gl_PointSize/gl_PointCoord.)
       const renderer = new T.WebGLRenderer({
         canvas: el,
         alpha: true,
@@ -142,6 +215,254 @@ export default function LiveMap3D(props: { trains: LiveTrain[] }) {
       }
       scene.add(italy);
 
+      // Railway tracks: LineSegments colored by nearest train stato.
+      // Built lazily in the frame loop when railwaySegments finishes loading.
+      let trackLines: THREE.LineSegments | null = null;
+      let trackColAttr: THREE.BufferAttribute | null = null;
+      let trackPositions: number[] = [];
+      let trackColors: number[] = [];
+
+      // Spatial grid + track coloring state (built alongside geometry)
+      const GRID_SIZE = 20;
+      const gridWorld = WORLD / GRID_SIZE;
+      let segmentMidpoints: Array<{ x: number; z: number; segIdx: number }> = [];
+      let segmentVertStart: number[] = [];
+      let segmentVertCount: number[] = [];
+      let gridCells: Map<string, number[]> = new Map();
+      let segmentWorstStato: number[] = [];
+      let builtSegments: RailwaySegment[] | null = null;
+      // Last train array that track colours were computed from (reference check).
+      let lastTrains: LiveTrain[] | null = null;
+
+      const statoSeverity: Record<string, number> = {
+        ok: 0,
+        delayed: 1,
+        "heavily-delayed": 3,
+        partial: 2,
+        cancelled: 4,
+        nodata: 4,
+      };
+
+      /**
+       * Build track geometry + spatial grid from railway segments.
+       * Called from the frame loop when the signal reference changes,
+       * so no reactive effect is created outside a root.
+       */
+      function buildTracks(segments: RailwaySegment[]) {
+        // Build line geometry + spatial grid in one pass, clipping every
+        // segment to the map rectangle so the European connecting lines
+        // stop at the edge instead of running off the map.
+        const HALF = WORLD / 2;
+        trackPositions = [];
+        trackColors = [];
+        segmentMidpoints = [];
+        segmentVertStart = [];
+        segmentVertCount = [];
+        gridCells = new Map();
+        segmentWorstStato = new Array(segments.length).fill(-1);
+
+        let vertOffset = 0;
+        for (let segIdx = 0; segIdx < segments.length; segIdx++) {
+          const seg = segments[segIdx];
+          segmentVertStart.push(vertOffset);
+
+          let pushed = 0;
+          let sumX = 0;
+          let sumZ = 0;
+          let nPts = 0;
+
+          for (let i = 0; i < seg.geom.length - 1; i++) {
+            const [lon1, lat1] = seg.geom[i];
+            const [lon2, lat2] = seg.geom[i + 1];
+            const [x1, z1] = toWorld(lon1, lat1);
+            const [x2, z2] = toWorld(lon2, lat2);
+
+            const clipped = clipSegmentToRect(
+              x1,
+              z1,
+              x2,
+              z2,
+              -HALF,
+              HALF,
+              -HALF,
+              HALF,
+            );
+            if (!clipped) continue;
+
+            const [cx1, cz1, cx2, cz2] = clipped;
+            trackPositions.push(cx1, TRACK_Y, cz1, cx2, TRACK_Y, cz2);
+            trackColors.push(0.5, 0.5, 0.5, 0.5, 0.5, 0.5);
+            pushed += 2;
+            sumX += cx1 + cx2;
+            sumZ += cz1 + cz2;
+            nPts += 2;
+          }
+
+          segmentVertCount.push(pushed);
+          vertOffset += pushed;
+
+          // Grid midpoint from the in-bounds clipped geometry only.
+          if (nPts > 0) {
+            const mx = sumX / nPts;
+            const mz = sumZ / nPts;
+            segmentMidpoints.push({ x: mx, z: mz, segIdx });
+            const gx = Math.floor((mx + HALF) / gridWorld);
+            const gz = Math.floor((mz + HALF) / gridWorld);
+            const key = `${gx},${gz}`;
+            const cell = gridCells.get(key) ?? [];
+            cell.push(segIdx);
+            gridCells.set(key, cell);
+          } else {
+            // Fully outside — keep index alignment with segmentVertStart.
+            segmentMidpoints.push({ x: 0, z: 0, segIdx });
+          }
+        }
+
+        if (trackLines) {
+          scene.remove(trackLines);
+          trackLines.geometry.dispose();
+        }
+
+        const trackGeo = new T.BufferGeometry();
+        const trackPosAttr = new T.BufferAttribute(new Float32Array(trackPositions), 3);
+        trackColAttr = new T.BufferAttribute(new Float32Array(trackColors), 3);
+        trackGeo.setAttribute("position", trackPosAttr);
+        trackGeo.setAttribute("color", trackColAttr);
+
+        const trackMat = new T.LineBasicMaterial({
+          vertexColors: true,
+          transparent: true,
+          opacity: 0.7,
+        });
+        trackLines = new T.LineSegments(trackGeo, trackMat);
+        trackLines.frustumCulled = false;
+        trackLines.renderOrder = 5;
+        trackLines.visible = props.showTracks !== false;
+        scene.add(trackLines);
+      }
+
+      function updateTrackColors(trains: LiveTrain[]) {
+        if (!trackColAttr || trackColors.length === 0) return;
+
+        // Reset all track colors to neutral
+        for (let i = 0; i < trackColors.length; i += 3) {
+          trackColors[i] = 0.5;
+          trackColors[i + 1] = 0.5;
+          trackColors[i + 2] = 0.5;
+        }
+        segmentWorstStato.fill(-1);
+
+        for (const train of trains) {
+          const [tx, tz] = toWorld(train.prev.lon, train.prev.lat);
+          const [bx, bz] = toWorld(train.next.lon, train.next.lat);
+          const nowMs = Date.now();
+          const lf = legFrame(train, tx, tz, bx, bz, nowMs);
+          const trainX = lf.idealX;
+          const trainZ = lf.idealZ;
+
+          const gx = Math.floor((trainX + WORLD / 2) / gridWorld);
+          const gz = Math.floor((trainZ + WORLD / 2) / gridWorld);
+
+          for (let dx = -1; dx <= 1; dx++) {
+            for (let dz = -1; dz <= 1; dz++) {
+              const key = `${gx + dx},${gz + dz}`;
+              const cell = gridCells.get(key);
+              if (!cell) continue;
+
+              for (const segIdx of cell) {
+                const mid = segmentMidpoints[segIdx];
+                const dist = Math.hypot(trainX - mid.x, trainZ - mid.z);
+                if (dist > 15) continue;
+
+                const currentSeverity = statoSeverity[train.stato] ?? 0;
+                const worstSeverity = segmentWorstStato[segIdx];
+
+                if (worstSeverity >= 0 && currentSeverity <= worstSeverity) continue;
+
+                segmentWorstStato[segIdx] = currentSeverity;
+                const [r, g, b] = hexToRgb(statoColor(train.stato));
+
+                const vertStart = segmentVertStart[segIdx];
+                const numVerts = segmentVertCount[segIdx];
+                for (let v = 0; v < numVerts; v++) {
+                  const idx = (vertStart + v) * 3;
+                  trackColors[idx] = r;
+                  trackColors[idx + 1] = g;
+                  trackColors[idx + 2] = b;
+                }
+              }
+            }
+          }
+        }
+
+        trackColAttr.needsUpdate = true;
+      }
+
+      // Station markers: tiny GLSL point sprites (SDF disc, constant screen
+      // size). Geometry is built lazily once /data/stations.json loads.
+      const stationMat = new T.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        uniforms: {
+          uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
+          uScale: { value: 280 },
+          uColor: { value: new T.Color(0xffffff) },
+        },
+        vertexShader: /* glsl */ `
+          attribute float aSize;
+          uniform float uPixelRatio;
+          uniform float uScale;
+          void main() {
+            vec4 mv = modelViewMatrix * vec4(position, 1.0);
+            gl_Position = projectionMatrix * mv;
+            float dist = max(-mv.z, 1.0);
+            float px = aSize * uPixelRatio * (uScale / dist);
+            gl_PointSize = clamp(px, 1.5, 12.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          uniform vec3 uColor;
+          void main() {
+            float d = length(gl_PointCoord - vec2(0.5)) * 2.0;
+            if (d > 1.0) discard;
+            float aa = fwidth(d) + 1e-4;
+            float alpha = 1.0 - smoothstep(0.5 - aa, 0.5 + aa, d);
+            if (alpha < 0.02) discard;
+            gl_FragColor = vec4(uColor, alpha);
+          }
+        `,
+      });
+
+      let stationDots: THREE.Points | null = null;
+      let builtStations: StationMarker[] | null = null;
+
+      function buildStationDots(stations: StationMarker[]) {
+        const positions = new Float32Array(stations.length * 3);
+        const sizes = new Float32Array(stations.length);
+        for (let i = 0; i < stations.length; i++) {
+          const s = stations[i];
+          const [x, z] = toWorld(s.lon, s.lat);
+          positions[i * 3] = x;
+          positions[i * 3 + 1] = STATION_Y;
+          positions[i * 3 + 2] = z;
+          sizes[i] = s.isMajor ? 2.0 : 1.2;
+        }
+        const geo = new T.BufferGeometry();
+        geo.setAttribute("position", new T.BufferAttribute(positions, 3));
+        geo.setAttribute("aSize", new T.BufferAttribute(sizes, 1));
+
+        if (stationDots) {
+          scene.remove(stationDots);
+          stationDots.geometry.dispose();
+        }
+        stationDots = new T.Points(geo, stationMat);
+        stationDots.frustumCulled = false;
+        stationDots.renderOrder = 6;
+        stationDots.visible = props.showStations !== false;
+        scene.add(stationDots);
+      }
+
       // Faint floor grid for depth while rotating. Rebuilt on theme
       // change (GridHelper bakes colors into vertices).
       let grid: THREE.GridHelper | null = null;
@@ -163,19 +484,20 @@ export default function LiveMap3D(props: { trains: LiveTrain[] }) {
         gridMat.opacity = 0.4;
         scene.add(grid);
       };
-      createEffect(() => {
-        if (cancelled) return;
-        const isDark = dark();
+
+      // Theme state, applied imperatively (no reactive effects outside a root)
+      let lastDark: boolean | null = null;
+      const applyTheme = (isDark: boolean) => {
         slabMat.color.set(isDark ? 0x232329 : 0xd4d4d8);
         edgeMat.color.set(isDark ? 0x8b8b96 : 0x52525b);
         hemi.color.set(isDark ? 0xe4e4e7 : 0xffffff);
         hemi.groundColor.set(isDark ? 0x09090b : 0xd4d4d8);
         buildGrid(isDark);
-      });
+      };
 
-      // Train dots: single ShaderMaterial point cloud with SDF-crisp
-      // discs (hard core + tight halo, 1px fwidth AA). Constant screen
-      // size via uScale perspective term — no texture, no mipmap blur.
+      // Train dots: single GLSL point cloud with SDF-crisp discs
+      // (hard core + tight halo, AA). Constant screen size via the
+      // perspective term — no texture, no mipmap blur.
       const DOT_SCALE = 280; // ≈ default camera distance: base px at rest
       const positions = new Float32Array(MAX * 3);
       const colors = new Float32Array(MAX * 3);
@@ -187,15 +509,16 @@ export default function LiveMap3D(props: { trains: LiveTrain[] }) {
       geo.setAttribute("position", posAttr);
       geo.setAttribute("color", colAttr);
       geo.setAttribute("aSize", sizeAttr);
+
+      // GLSL material: per-vertex color + size, SDF disc fragment
+      // (hard core + tight halo, 1px fwidth AA, constant screen size).
       const dotsMat = new T.ShaderMaterial({
         transparent: true,
         depthWrite: false,
         depthTest: true,
         vertexColors: true,
         uniforms: {
-          uPixelRatio: {
-            value: Math.min(window.devicePixelRatio || 1, 2),
-          },
+          uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
           uScale: { value: DOT_SCALE },
           uHalo: { value: 0.35 },
         },
@@ -210,7 +533,7 @@ export default function LiveMap3D(props: { trains: LiveTrain[] }) {
             gl_Position = projectionMatrix * mv;
             float dist = max(-mv.z, 1.0);
             float px = aSize * uPixelRatio * (uScale / dist);
-            gl_PointSize = clamp(px, 2.0, 28.0);
+            gl_PointSize = clamp(px, 1.2, 22.0);
           }
         `,
         fragmentShader: /* glsl */ `
@@ -229,6 +552,7 @@ export default function LiveMap3D(props: { trains: LiveTrain[] }) {
           }
         `,
       });
+
       const dots = new T.Points(geo, dotsMat);
       dots.frustumCulled = false;
       dots.renderOrder = 10;
@@ -239,7 +563,7 @@ export default function LiveMap3D(props: { trains: LiveTrain[] }) {
       controls.enableDamping = true;
       controls.dampingFactor = 0.08;
       controls.enablePan = false;
-      controls.minDistance = 110;
+      controls.minDistance = 14; // allow zooming right down to town level
       controls.maxDistance = 480;
       controls.minPolarAngle = 0.12;
       controls.maxPolarAngle = 1.32;
@@ -256,6 +580,7 @@ export default function LiveMap3D(props: { trains: LiveTrain[] }) {
         const pr = Math.min(window.devicePixelRatio || 1, 2);
         renderer.setPixelRatio(pr);
         dotsMat.uniforms.uPixelRatio.value = pr;
+        stationMat.uniforms.uPixelRatio.value = pr;
         renderer.setSize(cw, ch, false);
         camera.aspect = cw / ch;
         camera.updateProjectionMatrix();
@@ -271,6 +596,33 @@ export default function LiveMap3D(props: { trains: LiveTrain[] }) {
         raf = requestAnimationFrame(frame);
         const dt = Math.min(t - last, 250);
         last = t;
+
+        // Lazily build tracks once railway segments finish loading.
+        const segs = railwaySegments();
+        if (segs.length > 0 && segs !== builtSegments) {
+          buildTracks(segs);
+          builtSegments = segs;
+          lastTrains = null; // force a recolour on the freshly built buffer
+        }
+
+        // Lazily build station markers once they finish loading.
+        const sts = stationMarkers();
+        if (sts.length > 0 && sts !== builtStations) {
+          buildStationDots(sts);
+          builtStations = sts;
+        }
+
+        // Apply theme changes (no reactive effect; polled per frame).
+        const isDark = dark();
+        if (isDark !== lastDark) {
+          applyTheme(isDark);
+          lastDark = isDark;
+        }
+
+        // Visibility toggles from props.
+        if (trackLines) trackLines.visible = props.showTracks !== false;
+        if (stationDots) stationDots.visible = props.showStations !== false;
+
         const list = props.trains.slice(0, MAX);
         // Wall clock drives the timetable; rAF delta drives integration.
         // rAF stalls when the tab is hidden, dt clamp covers the gap.
@@ -306,13 +658,23 @@ export default function LiveMap3D(props: { trains: LiveTrain[] }) {
         posAttr.needsUpdate = true;
         colAttr.needsUpdate = true;
         sizeAttr.needsUpdate = true;
+
+        // Recolour tracks only when the train snapshot changes (12s poll),
+        // NOT every frame. The track colour buffer is ~780k floats; uploading
+        // it per frame was the main performance bottleneck.
+        if (props.trains !== lastTrains) {
+          updateTrackColors(list);
+          lastTrains = props.trains;
+        }
+
         controls.update();
         renderer.render(scene, camera);
       };
       raf = requestAnimationFrame(frame);
 
-      onCleanup(() => {
-        cancelled = true;
+      // Expose disposal to the synchronous onCleanup below (this async body
+      // runs outside the reactive owner, so onCleanup() here would leak).
+      disposeScene = () => {
         cancelAnimationFrame(raf);
         ro.disconnect();
         controls.dispose();
@@ -321,12 +683,19 @@ export default function LiveMap3D(props: { trains: LiveTrain[] }) {
           if (mesh.geometry) mesh.geometry.dispose();
         });
         dotsMat.dispose();
+        stationMat.dispose();
+        if (stationDots) stationDots.geometry.dispose();
+        if (trackLines) {
+          trackLines.geometry.dispose();
+          (trackLines.material as THREE.Material).dispose();
+        }
         renderer.dispose();
-      });
+      };
     })();
 
     onCleanup(() => {
       cancelled = true;
+      disposeScene?.();
     });
   });
 
