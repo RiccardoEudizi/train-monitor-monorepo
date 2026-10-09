@@ -1,4 +1,11 @@
-import { createSignal, onCleanup, onMount } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  Show,
+  type JSX,
+} from "solid-js";
 import type * as THREE from "three";
 import { ITALY_REGIONS, MAP_BOUNDS } from "~/lib/map/italy-regions";
 import { dissolvedRegion } from "~/lib/map/dissolve";
@@ -107,11 +114,26 @@ export default function LiveMap3D(props: {
   trains: LiveTrain[];
   showTracks?: boolean;
   showStations?: boolean;
+  /** Fullscreen mode unlocks pick-to-inspect + panning. */
+  fullscreen?: boolean;
+  /** Renders the detail HUD for a selected train (anchored to its dot). */
+  renderHud?: (train: LiveTrain, close: () => void) => JSX.Element;
+  /** Currently selected run id (controlled by the parent). */
+  selectedRunId?: number | null;
+  /** Notifies the parent when the selected train changes. */
+  onSelect?: (train: LiveTrain | null) => void;
 }) {
   let canvas: HTMLCanvasElement | undefined;
+  let hudAnchor: HTMLDivElement | undefined;
   const dark = useDark();
   const [railwaySegments, setRailwaySegments] = createSignal<RailwaySegment[]>([]);
   const [stationMarkers, setStationMarkers] = createSignal<StationMarker[]>([]);
+  const selectedTrain = createMemo(() => {
+    const id = props.selectedRunId;
+    if (id == null) return null;
+    return props.trains.find((t) => t.runId === id) ?? null;
+  });
+  const clearSelection = () => props.onSelect?.(null);
 
   onMount(() => {
     let cancelled = false;
@@ -573,6 +595,60 @@ export default function LiveMap3D(props: {
       controls.autoRotate = !reduced;
       controls.autoRotateSpeed = 0.9;
 
+      // --- Fullscreen picking: click a train dot to inspect it. ---
+      const tmpVec = new T.Vector3();
+      let downX = 0;
+      let downY = 0;
+
+      const projectToScreen = (x: number, z: number) => {
+        tmpVec.set(x, HOVER_Y, z).project(camera);
+        return {
+          x: (tmpVec.x * 0.5 + 0.5) * el.clientWidth,
+          y: (-tmpVec.y * 0.5 + 0.5) * el.clientHeight,
+          behind: tmpVec.z > 1,
+        };
+      };
+
+      const pickTrain = (clientX: number, clientY: number): LiveTrain | null => {
+        const rect = el.getBoundingClientRect();
+        const px = clientX - rect.left;
+        const py = clientY - rect.top;
+        let best: LiveTrain | null = null;
+        let bestD = 18; // px pick radius
+        for (const tr of props.trains.slice(0, MAX)) {
+          const st = motion.get(tr.runId);
+          if (!st) continue;
+          const s = projectToScreen(st.x, st.z);
+          if (s.behind) continue;
+          const d = Math.hypot(s.x - px, s.y - py);
+          if (d < bestD) {
+            bestD = d;
+            best = tr;
+          }
+        }
+        return best;
+      };
+
+      const onPointerDown = (e: PointerEvent) => {
+        downX = e.clientX;
+        downY = e.clientY;
+      };
+      const onPointerUp = (e: PointerEvent) => {
+        if (!props.fullscreen) return;
+        if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;
+        props.onSelect?.(pickTrain(e.clientX, e.clientY));
+      };
+      const onPointerMove = (e: PointerEvent) => {
+        if (!props.fullscreen) {
+          el.style.cursor = "";
+          return;
+        }
+        el.style.cursor = pickTrain(e.clientX, e.clientY) ? "pointer" : "grab";
+      };
+      el.addEventListener("pointerdown", onPointerDown);
+      el.addEventListener("pointerup", onPointerUp);
+      el.addEventListener("pointermove", onPointerMove);
+
       const fit = () => {
         const cw = parent?.clientWidth ?? 0;
         const ch = parent?.clientHeight ?? 0;
@@ -624,6 +700,9 @@ export default function LiveMap3D(props: {
         if (stationDots) stationDots.visible = props.showStations !== false;
 
         const list = props.trains.slice(0, MAX);
+        // Fullscreen unlocks panning; clicking is handled by the listeners.
+        const selId = props.selectedRunId ?? null;
+        controls.enablePan = props.fullscreen === true;
         // Wall clock drives the timetable; rAF delta drives integration.
         // rAF stalls when the tab is hidden, dt clamp covers the gap.
         const nowMs = Date.now();
@@ -643,7 +722,8 @@ export default function LiveMap3D(props: {
           positions[i * 3] = st.x;
           positions[i * 3 + 1] = HOVER_Y;
           positions[i * 3 + 2] = st.z;
-          sizes[i] = sizeForStato(tr.stato);
+          const base = sizeForStato(tr.stato);
+          sizes[i] = tr.runId === selId ? base * 1.6 + 2.5 : base;
           const [r, gg, b] = hexToRgb(statoColor(tr.stato));
           colors[i * 3] = r;
           colors[i * 3 + 1] = gg;
@@ -667,6 +747,16 @@ export default function LiveMap3D(props: {
           lastTrains = props.trains;
         }
 
+        // Anchor the HUD to the selected train's dot (screen space).
+        if (selId != null && hudAnchor) {
+          const st = motion.get(selId);
+          if (st) {
+            const s = projectToScreen(st.x, st.z);
+            hudAnchor.style.transform = `translate(${s.x}px, ${s.y}px)`;
+            hudAnchor.style.display = s.behind ? "none" : "block";
+          }
+        }
+
         controls.update();
         renderer.render(scene, camera);
       };
@@ -678,6 +768,9 @@ export default function LiveMap3D(props: {
         cancelAnimationFrame(raf);
         ro.disconnect();
         controls.dispose();
+        el.removeEventListener("pointerdown", onPointerDown);
+        el.removeEventListener("pointerup", onPointerUp);
+        el.removeEventListener("pointermove", onPointerMove);
         scene.traverse((o) => {
           const mesh = o as THREE.Mesh;
           if (mesh.geometry) mesh.geometry.dispose();
@@ -700,10 +793,26 @@ export default function LiveMap3D(props: {
   });
 
   return (
-    <canvas
-      ref={canvas}
-      aria-label="mappa 3D dell'Italia con treni in viaggio: trascina per ruotare, rotella per zoomare"
-      class="absolute inset-0 block h-full w-full touch-pan-y"
-    />
+    <>
+      <canvas
+        ref={canvas}
+        aria-label="mappa 3D dell'Italia con treni in viaggio: trascina per ruotare, rotella per zoomare"
+        class="absolute inset-0 block h-full w-full touch-pan-y"
+      />
+      {/* Detail HUD, anchored to the selected dot each frame. */}
+      <Show when={selectedTrain()}>
+        {(tr) => (
+          <div
+            ref={hudAnchor}
+            class="pointer-events-none absolute left-0 top-0 z-30"
+            style={{ display: "none" }}
+          >
+            <div class="pointer-events-auto -translate-x-1/2 -translate-y-full pb-2">
+              {props.renderHud?.(tr(), clearSelection)}
+            </div>
+          </div>
+        )}
+      </Show>
+    </>
   );
 }

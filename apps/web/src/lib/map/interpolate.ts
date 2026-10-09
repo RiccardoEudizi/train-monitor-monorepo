@@ -40,6 +40,11 @@ export interface LiveTrain {
   prev: MapAnchor;
   next: MapAnchor;
   updatedAt: string;
+  /** Origin / destination station names (for the map HUD). */
+  origine?: string;
+  destinazione?: string;
+  /** Name of the next stop the train is heading to. */
+  nextStation?: string;
 }
 
 /**

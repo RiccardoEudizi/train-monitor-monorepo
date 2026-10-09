@@ -86,6 +86,8 @@ interface RunRow {
   id: number;
   numero: string;
   categoria: string | null;
+  origine: string | null;
+  destinazione: string | null;
   lastDelay: number | null;
   provvedimento: number | null;
   orarioPartenza: unknown;
@@ -157,6 +159,8 @@ async function computeLiveTrains(): Promise<LiveTrainsRes> {
     SELECT r.id AS "id",
            r.numero AS "numero",
            r.categoria AS "categoria",
+           r.origine AS "origine",
+           r.destinazione AS "destinazione",
            r.last_delay AS "lastDelay",
            r.provvedimento AS "provvedimento",
            r.orario_partenza AS "orarioPartenza",
@@ -202,18 +206,26 @@ async function computeLiveTrains(): Promise<LiveTrainsRes> {
   }
 
   const codes = [...new Set(stopRows.map((s) => s.stationCode))];
-  const coordByCode = new Map<string, { lat: number; lon: number }>();
+  const coordByCode = new Map<
+    string,
+    { lat: number; lon: number; name: string }
+  >();
   if (codes.length > 0) {
     // Chunk the IN list: traveling trains can touch hundreds of stations.
     for (let i = 0; i < codes.length; i += 500) {
       const chunk = codes.slice(i, i + 500);
       const stationRows = await database
-        .select({ code: stations.code, lat: stations.lat, lon: stations.lon })
+        .select({
+          code: stations.code,
+          lat: stations.lat,
+          lon: stations.lon,
+          name: stations.name,
+        })
         .from(stations)
         .where(inArray(stations.code, chunk));
       for (const r of stationRows) {
         if (r.lat != null && r.lon != null) {
-          coordByCode.set(r.code, { lat: r.lat, lon: r.lon });
+          coordByCode.set(r.code, { lat: r.lat, lon: r.lon, name: r.name });
         }
       }
     }
@@ -277,9 +289,12 @@ async function computeLiveTrains(): Promise<LiveTrainsRes> {
       categoria: run.categoria ?? "",
       delay,
       stato: statoFor(delay, run.provvedimento ?? 0),
-      prev: { ...prevCoord, t: prevT },
-      next: { ...nextCoord, t: nextT },
+      prev: { lat: prevCoord.lat, lon: prevCoord.lon, t: prevT },
+      next: { lat: nextCoord.lat, lon: nextCoord.lon, t: nextT },
       updatedAt,
+      origine: run.origine ?? "",
+      destinazione: run.destinazione ?? "",
+      nextStation: nextCoord.name,
     });
   }
 

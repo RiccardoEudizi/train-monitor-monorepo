@@ -249,3 +249,25 @@ body {
 .palette-content[data-closed] {
   animation: palette-content-out 120ms ease-in;
 }
+
+/* ---- Live map fullscreen morph (View Transitions API) ---- */
+.live-map-vt {
+  view-transition-name: live-map;
+}
+
+/* Animate the box morph (position + size); the default old/new cross-fade
+   runs underneath. Only touch the duration — overriding `animation` on the
+   old/new pseudos breaks the transition's teardown and leaves a stuck
+   snapshot. */
+::view-transition-group(live-map) {
+  animation-duration: 380ms;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(live-map),
+  ::view-transition-old(live-map),
+  ::view-transition-new(live-map) {
+    animation-duration: 1ms !important;
+  }
+}
