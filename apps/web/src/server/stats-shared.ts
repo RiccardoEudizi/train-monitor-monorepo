@@ -17,6 +17,20 @@ export function rate(count: number, total: number): number {
   return total ? Math.round((count / total) * 1000) / 10 : 0;
 }
 
+/**
+ * Max of an array without spreading it. `Math.max(...values)` pushes every
+ * element onto the call stack as a function argument, which throws
+ * "Maximum call stack size exceeded" once a 30-day window exceeds ~128k rows
+ * (the homepage overview reads that many). Returns 0 for an empty array.
+ */
+export function maxValue(values: number[]): number {
+  let m = values[0] ?? 0;
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] > m) m = values[i];
+  }
+  return m;
+}
+
 type DayBucket = { sum: number; max: number; n: number };
 
 export function emptyDayBucket(): DayBucket {

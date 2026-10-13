@@ -23,7 +23,7 @@ import { searchSeed, seedByCode } from "~/lib/stations-seed";
 import { db, dbConfigured } from "~/server/db";
 import { logError } from "~/server/log";
 import { periodSinceDate } from "~/server/period";
-import { avg, emptyStats, percentile, rate, toSeries } from "~/server/stats-shared";
+import { avg, emptyStats, maxValue, percentile, rate, toSeries } from "~/server/stats-shared";
 
 /**
  * Shared data access used by BOTH the /api/* route adapters and the
@@ -594,7 +594,7 @@ export async function fetchStats(
       d.n += 1;
       byDay.set(r.runDate, d);
     }
-    const maxFinal = maxes.length ? Math.max(...maxes) : 0;
+    const maxFinal = maxValue(maxes);
     let worstTrain: PeriodStats["worstTrain"] = null;
     if (rows.length > 0) {
       const worst = [...rows]
@@ -825,7 +825,7 @@ export async function fetchStats(
     runs: rows.length,
     avgFinal: avg(finals),
     p95Final: percentile(finals, 95),
-    maxFinal: finals.length ? Math.max(...finals) : 0,
+    maxFinal: maxValue(finals),
     avgMaxEnroute: avg(maxes),
     avgRecupero: Math.round(recupero * 10) / 10,
     cancellRate: rate(cancelled, rows.length),
