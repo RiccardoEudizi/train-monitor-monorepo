@@ -8,6 +8,7 @@
 [**→ train-monitor-v2.vercel.app**](https://train-monitor-v2.vercel.app)
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
+[![CI](https://github.com/RiccardoEudizi/train-monitor-monorepo/actions/workflows/ci.yml/badge.svg)](https://github.com/RiccardoEudizi/train-monitor-monorepo/actions/workflows/ci.yml)
 ![SolidStart](https://img.shields.io/badge/SolidStart-2.0-2c4f7c)
 ![Go](https://img.shields.io/badge/Go-1.24-00ADD8)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-336791)
