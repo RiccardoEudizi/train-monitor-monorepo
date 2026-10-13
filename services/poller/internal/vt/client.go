@@ -88,6 +88,12 @@ func (c *Client) Autocomplete(ctx context.Context, numero int) ([]TrainRef, erro
 	if code != 200 {
 		return nil, fmt.Errorf("autocomplete %d: http %d", numero, code)
 	}
+	return parseAutocomplete(body), nil
+}
+
+// parseAutocomplete parses the newline-delimited autocomplete body, skipping
+// lines that don't match the "label|numero-origine-midnight" shape.
+func parseAutocomplete(body []byte) []TrainRef {
 	var refs []TrainRef
 	for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
 		parts := strings.Split(line, "|")
@@ -104,7 +110,7 @@ func (c *Client) Autocomplete(ctx context.Context, numero int) ([]TrainRef, erro
 		fmt.Sscan(fields[0], &n)
 		refs = append(refs, TrainRef{Numero: n, OrigineCode: fields[1], Midnight: mid})
 	}
-	return refs, nil
+	return refs
 }
 
 // Fermata is one stop of andamentoTreno (trimmed to what we store).
@@ -151,7 +157,7 @@ func (a *Andamento) Cat() string {
 	if c := strings.TrimSpace(a.CategoriaDesc); c != "" {
 		return c
 	}
-	return strings.TrimSpace(strings.Split(a.CompNumero, " ")[0])
+	return strings.TrimSpace(strings.Split(strings.TrimSpace(a.CompNumero), " ")[0])
 }
 
 // AndamentoTreno fetches full detail. Returns (nil, nil) on 204 (cancelled/nodata).
