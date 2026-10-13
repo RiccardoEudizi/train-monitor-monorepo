@@ -13,12 +13,14 @@ import type {
   NewsRes,
   OverviewRes,
   PeriodStats,
+  RegionStat,
   StationItem,
   TrainDetail,
 } from "~/lib/api-types";
 import { statoFor, temporalStatus } from "~/lib/api-types";
 import { DELAY_THRESHOLD } from "~/lib/thresholds";
-import { aggregateByRegion } from "~/lib/region-agg";
+import { aggregateByRegion, type PerRunRegion } from "~/lib/region-agg";
+import { MAJOR_REGION_OVERRIDE, regionName } from "~/lib/regions";
 import { searchSeed, seedByCode } from "~/lib/stations-seed";
 import { db, dbConfigured } from "~/server/db";
 import { logError } from "~/server/log";
@@ -566,6 +568,14 @@ export async function fetchStats(
     return { ...emptyStats, dbConfigured: false, period };
   }
 
+  if (scope === "global") {
+    try {
+      return await fetchGlobalStatsSQL(period);
+    } catch (e) {
+      logError("global stats SQL failed, falling back to row scan", e);
+    }
+  }
+
   if (scope === "station" && id) {
     const rows = sinceDate
       ? await database
@@ -838,6 +848,217 @@ export async function fetchStats(
   };
 }
 
+/** neon-http `db.execute()` returns `{ rows }`; plain arrays elsewhere. */
+function rowsOf<T>(raw: unknown): T[] {
+  return Array.isArray(raw) ? (raw as T[]) : ((raw as { rows?: T[] }).rows ?? []);
+}
+
+/**
+ * Region delay aggregates for the choropleth / overview ranking, computed in
+ * SQL. Returns ~20 rows instead of the 137k per-run rows the old path shipped
+ * over neon-http (~15-23s). Region attribution mirrors resolveRegion exactly:
+ * the frozen region_id wins when set, otherwise the major-station override
+ * (passed as a JSON map) — non-major 0/NULL rows are dropped.
+ *
+ * Falls back to the per-run scan + aggregateByRegion only if the SQL fails.
+ */
+export async function fetchRegionStats(period: string): Promise<RegionStat[]> {
+  const database = db();
+  if (!database) return [];
+  const sinceDate = periodSinceDate(period);
+  const override = JSON.stringify(Object.fromEntries(MAJOR_REGION_OVERRIDE));
+
+  try {
+    const raw = await database.execute(sql`
+      WITH resolved AS (
+        SELECT
+          CASE
+            WHEN d.region_id IS NOT NULL AND d.region_id <> 0 THEN d.region_id
+            WHEN d.region_station IS NULL THEN NULL
+            ELSE ((${override}::jsonb) ->> d.region_station)::int
+          END AS region_id,
+          COALESCE(d.last_delay, 0) AS delay
+        FROM daily_train_stats d
+        ${sinceDate ? sql`WHERE d.run_date >= ${sinceDate}` : sql``}
+      )
+      SELECT region_id,
+             count(*)::int AS runs,
+             count(*) FILTER (WHERE delay > ${DELAY_THRESHOLD})::int AS delayed,
+             COALESCE(sum(delay), 0)::int AS total,
+             COALESCE(max(delay), 0)::int AS max
+      FROM resolved
+      WHERE region_id IS NOT NULL
+      GROUP BY region_id
+      ORDER BY total DESC, delayed DESC
+    `);
+    return rowsOf<{
+      region_id: number;
+      runs: number;
+      delayed: number;
+      total: number;
+      max: number;
+    }>(raw).map((r) => ({
+      regionId: r.region_id,
+      name: regionName(r.region_id),
+      runs: r.runs,
+      delayedCount: r.delayed,
+      totalDelay: r.total,
+      avgDelay: r.runs ? Math.round((r.total / r.runs) * 10) / 10 : 0,
+      maxDelay: r.max,
+    }));
+  } catch (e) {
+    logError("region stats SQL failed, falling back to row scan", e);
+  }
+
+  return aggregateByRegion(await fetchPerRunRegion(period));
+}
+
+/**
+ * National period stats computed in SQL: one aggregate row + one row per day,
+ * instead of shipping every run (137k rows, ~15-23s) to Node to fold in JS.
+ *
+ * Source matches the previous behaviour: bounded periods read the live
+ * `train_runs` hot window, "total"/"all" reads the forever `daily_train_stats`
+ * rollup. The math mirrors stats-shared (avg/rate/percentile rounded the same).
+ */
+async function fetchGlobalStatsSQL(
+  period: string,
+): Promise<PeriodStats & { dbConfigured: boolean; period: string }> {
+  const database = db();
+  if (!database) return { ...emptyStats, dbConfigured: false, period };
+
+  const sinceDate = periodSinceDate(period);
+  const table = sinceDate ? trainRuns : dailyTrainStats;
+  const delay = sinceDate ? trainRuns.lastDelay : dailyTrainStats.lastDelay;
+  const maxDelay = sinceDate ? trainRuns.maxDelay : dailyTrainStats.maxDelay;
+  const provvedimento = sinceDate ? trainRuns.provvedimento : dailyTrainStats.provvedimento;
+  const dateCol = sinceDate ? trainRuns.dataPartenza : dailyTrainStats.runDate;
+  const where = sinceDate ? sql`WHERE ${dateCol} >= ${sinceDate}` : sql``;
+
+  const aggRaw = await database.execute(sql`
+    SELECT
+      count(*)::int AS runs,
+      COALESCE(sum(COALESCE(${delay}, 0)), 0)::int AS total_delay,
+      count(*) FILTER (WHERE COALESCE(${delay}, 0) > ${DELAY_THRESHOLD})::int AS delayed_count,
+      count(*) FILTER (WHERE ${provvedimento} = 1)::int AS cancelled,
+      COALESCE(round(avg(COALESCE(${delay}, 0)), 1), 0)::float8 AS avg_final,
+      COALESCE(max(COALESCE(${delay}, 0)), 0)::int AS max_final,
+      COALESCE(percentile_disc(0.95) WITHIN GROUP (ORDER BY COALESCE(${delay}, 0)), 0)::int AS p95_final,
+      COALESCE(round(avg(COALESCE(${maxDelay}, ${delay}, 0)), 1), 0)::float8 AS avg_max
+    FROM ${table} ${where}
+  `);
+  const a = rowsOf<{
+    runs: number;
+    total_delay: number;
+    delayed_count: number;
+    cancelled: number;
+    avg_final: number;
+    max_final: number;
+    p95_final: number;
+    avg_max: number;
+  }>(aggRaw)[0];
+
+  const seriesRaw = await database.execute(sql`
+    SELECT ${dateCol}::text AS date,
+           count(*)::int AS runs,
+           COALESCE(round(avg(COALESCE(${delay}, 0)), 1), 0)::float8 AS avg_final,
+           COALESCE(max(COALESCE(${delay}, 0)), 0)::int AS max_final
+    FROM ${table} ${where}
+    GROUP BY ${dateCol}
+    ORDER BY ${dateCol}
+  `);
+  const series = rowsOf<{
+    date: string;
+    runs: number;
+    avg_final: number;
+    max_final: number;
+  }>(seriesRaw).map((r) => ({
+    date: r.date,
+    avgFinal: r.avg_final,
+    maxFinal: r.max_final,
+    runs: r.runs,
+  }));
+
+  const runs = a?.runs ?? 0;
+  const avgFinal = a?.avg_final ?? 0;
+  const avgMaxEnroute = a?.avg_max ?? 0;
+
+  return {
+    runs,
+    avgFinal,
+    p95Final: a?.p95_final ?? 0,
+    maxFinal: a?.max_final ?? 0,
+    avgMaxEnroute,
+    // avg() rounds each side to 1dp before subtracting, as before.
+    avgRecupero: Math.round((avgMaxEnroute - avgFinal) * 10) / 10,
+    cancellRate: rate(a?.cancelled ?? 0, runs),
+    delayedCount: a?.delayed_count ?? 0,
+    delayedRate: rate(a?.delayed_count ?? 0, runs),
+    totalDelay: a?.total_delay ?? 0,
+    worstTrain: null,
+    series,
+    dbConfigured: true,
+    period,
+  };
+}
+
+/**
+ * Per-run delay + region for a period, feeding the region aggregations
+ * (fetchOverview, fetchMapRegions).
+ *
+ * Reads the `daily_train_stats` rollup: one indexed scan over a table that
+ * already carries `last_delay` + `region_id` + `region_station` per run, with
+ * region attribution frozen at rollup time and kept forever. This replaces the
+ * live `train_runs ⨯ stops` last-stop lateral, which seq-scanned `stations`
+ * once per run and took ~70s over the 30-day window (the rollup read is ~40ms).
+ *
+ * Falls back to the live hot window only if the rollup read fails (e.g. a DB
+ * without migrations 006/007). The fallback keeps the `stations` join OUTSIDE
+ * the lateral so it uses the `stations_code_key` index instead of a per-run
+ * seq scan.
+ */
+export async function fetchPerRunRegion(period: string): Promise<PerRunRegion[]> {
+  const database = db();
+  if (!database) return [];
+  const sinceDate = periodSinceDate(period);
+
+  try {
+    return (await database
+      .select({
+        lastDelay: dailyTrainStats.lastDelay,
+        regionId: dailyTrainStats.regionId,
+        stationCode: dailyTrainStats.regionStation,
+      })
+      .from(dailyTrainStats)
+      .where(
+        sinceDate ? gte(dailyTrainStats.runDate, sinceDate) : undefined,
+      )) as PerRunRegion[];
+  } catch (e) {
+    logError("daily_train_stats read failed, falling back to train_runs", e);
+  }
+
+  // NB: con il driver neon-http `db.execute()` restituisce
+  // FullQueryResults `{ rows: [...] }`, non un array diretto.
+  const rawPerRun = (await database.execute(sql`
+    SELECT r.last_delay AS "lastDelay",
+           COALESCE(reg.region_id, so.region_id) AS "regionId",
+           COALESCE(sl.code, so.code) AS "stationCode"
+    FROM train_runs r
+    LEFT JOIN LATERAL (
+      SELECT st.station_code AS code
+      FROM stops st
+      WHERE st.run_id = r.id
+        AND (st.actual_arr IS NOT NULL OR st.actual_dep IS NOT NULL)
+      ORDER BY st.order_idx DESC
+      LIMIT 1
+    ) sl ON true
+    LEFT JOIN stations reg ON reg.code = sl.code
+    LEFT JOIN stations so ON so.code = r.origine_code
+    ${sinceDate ? sql`WHERE r.data_partenza >= ${sinceDate}` : sql``}
+  `)) as unknown as PerRunRegion[] | { rows: PerRunRegion[] };
+  return Array.isArray(rawPerRun) ? rawPerRun : (rawPerRun.rows ?? []);
+}
+
 /**
  * Panoramica nazionale per la home: media nazionale, regione con più ritardo
  * e incidenza % — tutto sul periodo richiesto ("1d" | "7d" | "30d" | "total",
@@ -866,54 +1087,8 @@ export async function fetchOverview(period: string): Promise<OverviewRes> {
   const sinceDate = periodSinceDate(period);
 
   // Una riga per corsa: ritardo finale + regione dell'ultimo rilevamento.
-  // Bounded periods read live `train_runs`+`stops`; "total"/"all" reads the
-  // `daily_train_stats` rollup (region attribution frozen at rollup time),
-  // which survives the 30-day `train_runs` retention window. The rollup read
-  // is best-effort: DBs without migrations 006/007 fall back to the hot
-  // window instead of 500ing.
-  // NB: con il driver neon-http `db.execute()` restituisce
-  // FullQueryResults `{ rows: [...] }`, non un array diretto.
-  type PerRunRow = {
-    lastDelay: number | null;
-    regionId: number | null;
-    stationCode: string | null;
-  };
-  let perRun: PerRunRow[] | null = null;
-  if (sinceDate == null) {
-    try {
-      perRun = await database
-        .select({
-          lastDelay: dailyTrainStats.lastDelay,
-          regionId: dailyTrainStats.regionId,
-          stationCode: dailyTrainStats.regionStation,
-        })
-        .from(dailyTrainStats);
-    } catch (e) {
-      logError("daily_train_stats read failed, falling back to train_runs", e);
-    }
-  }
-  if (perRun == null) {
-    const rawPerRun = (await database.execute(sql`
-    SELECT r.last_delay AS "lastDelay",
-           COALESCE(sl.region_id, so.region_id) AS "regionId",
-           COALESCE(sl.code, so.code) AS "stationCode"
-    FROM train_runs r
-    LEFT JOIN LATERAL (
-      SELECT stat.region_id AS region_id, st.station_code AS code
-      FROM stops st
-      LEFT JOIN stations stat ON stat.code = st.station_code
-      WHERE st.run_id = r.id
-        AND (st.actual_arr IS NOT NULL OR st.actual_dep IS NOT NULL)
-      ORDER BY st.order_idx DESC
-      LIMIT 1
-    ) sl ON true
-    LEFT JOIN stations so ON so.code = r.origine_code
-    ${sinceDate ? sql`WHERE r.data_partenza >= ${sinceDate}` : sql``}
-  `)) as unknown as Array<PerRunRow> | { rows: Array<PerRunRow> };
-    perRun = Array.isArray(rawPerRun) ? rawPerRun : (rawPerRun.rows ?? []);
-  }
-
-  const regions = aggregateByRegion(perRun);
+  // Aggregated in SQL (see fetchRegionStats) instead of shipping every run.
+  const regions = await fetchRegionStats(period);
 
   return {
     period,

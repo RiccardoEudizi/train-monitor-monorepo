@@ -3,9 +3,8 @@ import { stations, stops } from "~/db/schema";
 import type { RegionStat, TrainStato } from "~/lib/api-types";
 import { statoFor } from "~/lib/api-types";
 import type { LiveCounts, LiveTrain } from "~/lib/map/interpolate";
-import { periodSinceDate } from "~/server/period";
-import { aggregateByRegion, type PerRunRegion } from "~/lib/region-agg";
 import { db } from "~/server/db";
+import { fetchRegionStats } from "~/server/data";
 
 /**
  * Map data layer for /map. Thin over the same tables as ~/server/data;
@@ -23,28 +22,7 @@ export async function fetchMapRegions(period: string): Promise<MapRegionsRes> {
   const database = db();
   if (!database) return { period, dbConfigured: false, regions: [] };
 
-  const sinceDate = periodSinceDate(period);
-
-  const raw = (await database.execute(sql`
-    SELECT r.last_delay AS "lastDelay",
-           COALESCE(sl.region_id, so.region_id) AS "regionId",
-           COALESCE(sl.code, so.code) AS "stationCode"
-    FROM train_runs r
-    LEFT JOIN LATERAL (
-      SELECT stat.region_id AS region_id, st.station_code AS code
-      FROM stops st
-      LEFT JOIN stations stat ON stat.code = st.station_code
-      WHERE st.run_id = r.id
-        AND (st.actual_arr IS NOT NULL OR st.actual_dep IS NOT NULL)
-      ORDER BY st.order_idx DESC
-      LIMIT 1
-    ) sl ON true
-    LEFT JOIN stations so ON so.code = r.origine_code
-    ${sinceDate ? sql`WHERE r.data_partenza >= ${sinceDate}` : sql``}
-  `)) as unknown as PerRunRegion[] | { rows: PerRunRegion[] };
-  const perRun = Array.isArray(raw) ? raw : (raw.rows ?? []);
-
-  const regions = aggregateByRegion(perRun);
+  const regions = await fetchRegionStats(period);
 
   return { period, dbConfigured: true, regions };
 }

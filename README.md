@@ -135,6 +135,11 @@ Web lookup order: `apps/web/.env`, then repo-root `.env`, then launcher CWD
 Drizzle mirror. Any table change = a new migration *plus* a manual mirror update —
 the two are never allowed to drift.
 
+**Aggregate in SQL, not in Node.** The overview and region rankings used to
+ship every run in the window (~137k rows) over Neon's HTTP driver to fold in
+JavaScript — 15–23 s per request, and occasionally the stream dropped. They now
+`GROUP BY` in Postgres and return ~20 rows (~40 ms). Same numbers, ~30× faster.
+
 **Change-only writes.** The poller rewrites a run only when `ritardo` /
 `provvedimento` / `oraUltimoRilevamento` changed, so the hot 40s cadence stays
 cheap and static schedule data is never churned. `204` (cancelled) responses are
