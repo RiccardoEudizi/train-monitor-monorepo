@@ -35,3 +35,6 @@ Thumbs.db
 
 # Railway fetch cache (large intermediate; regenerate with `pnpm run fetch:railways`)
 apps/web/scripts/.railways-cache.json
+
+# Local-only launch drafts (blog post, community posts — not published)
+/docs/launch/
