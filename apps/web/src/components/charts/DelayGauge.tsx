@@ -5,7 +5,7 @@ import { TM } from "./tm-theme";
 /** Single emerald bar on a fixed 0–100 scale (Chart.js). */
 export default function DelayGauge(props: { pct: number; height?: number }) {
   let canvas!: HTMLCanvasElement;
-  let chart: Chart<"bar"> | undefined;
+  let chart: Chart | undefined;
 
   const pct = () => Math.max(0, Math.min(100, Math.round(props.pct)));
 

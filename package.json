@@ -11,6 +11,7 @@
     "build": "pnpm --filter web build",
     "start": "pnpm --filter web start",
     "preview": "pnpm --filter web preview",
+    "typecheck": "pnpm --filter web typecheck",
     "db:generate": "pnpm --filter web db:generate",
     "db:migrate": "pnpm --filter web db:migrate",
     "db:push": "pnpm --filter web db:push",

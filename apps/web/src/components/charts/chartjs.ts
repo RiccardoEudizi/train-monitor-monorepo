@@ -9,6 +9,7 @@ import {
   LinearScale,
   PointElement,
   Tooltip,
+  type TooltipCallbacks,
   type TooltipOptions,
 } from "chart.js";
 import { TM } from "./tm-theme";
@@ -42,7 +43,12 @@ export const TICKS = {
 } as const;
 
 /** Dark mono tooltip shell matching map popups. */
-export function tooltipBase(extra?: Partial<TooltipOptions<"line" | "bar">>) {
+export function tooltipBase(
+  extra?: Omit<Partial<TooltipOptions<"line" | "bar">>, "callbacks"> & {
+    // A subset of callbacks is enough; Chart.js fills the rest at runtime.
+    callbacks?: Partial<TooltipCallbacks<"line" | "bar">>;
+  },
+) {
   return {
     backgroundColor: "rgba(9, 9, 11, 0.95)",
     borderColor: "#3f3f46",

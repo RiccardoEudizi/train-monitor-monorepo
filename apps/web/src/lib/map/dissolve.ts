@@ -34,7 +34,9 @@ export function dissolvedRegion(id: number): RegionOutline {
     .map((ring) => [closeRing(ring as LonLat[])] as [LonLat[]]);
   let out: RegionOutline = [];
   if (polys.length > 0) {
-    out = (union(...polys) ?? []) as unknown as RegionOutline;
+    // polygon-clipping's default export has loose types; wrap it once.
+    const merge = union as unknown as (...geoms: LonLat[][][]) => RegionOutline;
+    out = merge(...(polys as LonLat[][][])) ?? [];
   }
   cache.set(id, out);
   return out;

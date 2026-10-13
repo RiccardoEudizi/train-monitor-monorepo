@@ -13,7 +13,7 @@ export default function TrendChart(props: {
   label?: string;
 }) {
   let canvas!: HTMLCanvasElement;
-  let chart: Chart<"line"> | undefined;
+  let chart: Chart | undefined;
 
   const sliced = () => props.values.slice(-31);
   const shortLabels = () => {

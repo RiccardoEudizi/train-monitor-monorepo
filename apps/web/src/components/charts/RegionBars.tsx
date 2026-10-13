@@ -11,7 +11,7 @@ export interface RegionBarRow {
 /** Horizontal amber bars (Chart.js). Same props as before. */
 export default function RegionBars(props: { rows: RegionBarRow[]; height?: number }) {
   let canvas!: HTMLCanvasElement;
-  let chart: Chart<"bar"> | undefined;
+  let chart: Chart | undefined;
 
   const data = () => [...props.rows].sort((a, b) => b.value - a.value).slice(0, 8);
 
