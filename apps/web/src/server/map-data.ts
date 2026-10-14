@@ -3,8 +3,18 @@ import { stations, stops } from "~/db/schema";
 import type { RegionStat, TrainStato } from "~/lib/api-types";
 import { statoFor } from "~/lib/api-types";
 import type { LiveCounts, LiveTrain } from "~/lib/map/interpolate";
+import type {
+  DayReplay,
+  DayReplayRun,
+  ReplayDaysRes,
+} from "~/lib/map/replay";
 import { db } from "~/server/db";
 import { fetchRegionStats } from "~/server/data";
+
+/** neon-http `db.execute()` returns `{ rows }`; plain arrays elsewhere. */
+function rowsOf<T>(raw: unknown): T[] {
+  return Array.isArray(raw) ? (raw as T[]) : ((raw as { rows?: T[] }).rows ?? []);
+}
 
 /**
  * Map data layer for /map. Thin over the same tables as ~/server/data;
@@ -277,4 +287,251 @@ async function computeLiveTrains(): Promise<LiveTrainsRes> {
   }
 
   return { updatedAt, dbConfigured: true, counts: countTrains(trains), trains };
+}
+
+// ---------------------------------------------------------------------------
+// Historical day replay
+//
+// Replay reads the 30-day hot window (train_runs + stops with per-stop
+// scheduled/actual times). Older days only survive as `daily_*_stats`
+// rollups, which carry no times or coords, so they are not replayable.
+//
+// The payload is compact for the client: times are integer MINUTES since the
+// Europe/Rome midnight of `data_partenza`, and stations are dense-ranked by
+// code (runs reference them by index). ~9.5k runs ≈ 1.9 MB raw JSON.
+// ---------------------------------------------------------------------------
+
+/** Days that have per-stop replay data, newest first. */
+export async function fetchReplayDays(): Promise<ReplayDaysRes> {
+  const database = db();
+  if (!database) return { dbConfigured: false, days: [] };
+
+  const rows = rowsOf<{ date: string; runs: number | string }>(
+    await database.execute(sql`
+      SELECT to_char(data_partenza, 'YYYY-MM-DD') AS "date",
+             count(*)::int AS "runs"
+      FROM train_runs
+      GROUP BY data_partenza
+      ORDER BY data_partenza DESC
+    `),
+  );
+  return {
+    dbConfigured: true,
+    days: rows.map((r) => ({ date: r.date, runs: Number(r.runs) })),
+  };
+}
+
+const DAY_TTL_MS = 5 * 60_000;
+const DAY_CACHE_MAX = 4;
+/** Runs per Neon round-trip (keeps each response small enough to be reliable). */
+const DAY_CHUNK_RUNS = 2500;
+const DAY_MAX_CHUNKS = 6;
+/** Neon HTTP streams occasionally abort on large responses — retry. */
+const DAY_ATTEMPTS = 3;
+/** Per-date dataset cache (small LRU) + single-flight. */
+const dayCache = new Map<string, { at: number; res: DayReplay }>();
+const dayInFlight = new Map<string, Promise<DayReplay>>();
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < DAY_ATTEMPTS; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (attempt < DAY_ATTEMPTS - 1) {
+        await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+/** Whole-day trajectory dataset, memoized per date. */
+export function fetchDayReplay(date: string): Promise<DayReplay> {
+  const key = date.trim();
+  const hit = dayCache.get(key);
+  if (hit && Date.now() - hit.at < DAY_TTL_MS) {
+    dayCache.delete(key); // refresh LRU recency
+    dayCache.set(key, hit);
+    return Promise.resolve(hit.res);
+  }
+  const inflight = dayInFlight.get(key);
+  if (inflight) return inflight;
+
+  const p = computeDayReplay(key)
+    .then((res) => {
+      dayCache.set(key, { at: Date.now(), res });
+      while (dayCache.size > DAY_CACHE_MAX) {
+        const oldest = dayCache.keys().next().value;
+        if (oldest === undefined) break;
+        dayCache.delete(oldest);
+      }
+      return res;
+    })
+    .finally(() => {
+      dayInFlight.delete(key);
+    });
+  dayInFlight.set(key, p);
+  return p;
+}
+
+function emptyDay(date: string, dbConfigured: boolean): DayReplay {
+  return {
+    date,
+    dbConfigured,
+    midnightMs: 0,
+    minMin: 0,
+    maxMin: 0,
+    stations: [],
+    runs: [],
+  };
+}
+
+async function computeDayReplay(date: string): Promise<DayReplay> {
+  const database = db();
+  if (!database) return emptyDay(date, false);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return emptyDay(date, true);
+
+  const [stationRaw, midRaw, infoRaw] = await Promise.all([
+    // Station dictionary with a GLOBAL rank over every geolocated station, so
+    // the index is identical no matter how the runs are chunked below.
+    withRetry(() =>
+      database.execute(sql`
+        SELECT st.lat AS "lat", st.lon AS "lon", st.name AS "name",
+               (dense_rank() OVER (ORDER BY st.code COLLATE "C") - 1)::int AS "si"
+        FROM stations st
+        WHERE st.lat IS NOT NULL AND st.lon IS NOT NULL
+        ORDER BY "si"
+      `),
+    ),
+    withRetry(() =>
+      database.execute(sql`
+        SELECT (EXTRACT(EPOCH FROM (${date}::date::timestamp AT TIME ZONE 'Europe/Rome')) * 1000)::bigint AS "midnightMs"
+      `),
+    ),
+    withRetry(() =>
+      database.execute(sql`
+        SELECT COALESCE(min(id), 0)::int AS "lo",
+               COALESCE(max(id), 0)::int AS "hi",
+               count(*)::int AS "n"
+        FROM train_runs
+        WHERE data_partenza = ${date}::date
+      `),
+    ),
+  ]);
+
+  const stations: Array<[number, number, string]> = rowsOf<{
+    lat: number;
+    lon: number;
+    name: string;
+  }>(stationRaw).map((s) => [s.lat, s.lon, s.name]);
+
+  const midnightMs = Number(
+    rowsOf<{ midnightMs: number | string }>(midRaw)[0]?.midnightMs ?? 0,
+  );
+
+  const info = rowsOf<{ lo: number; hi: number; n: number }>(infoRaw)[0];
+  const total = Number(info?.n ?? 0);
+  if (total === 0) return emptyDay(date, true);
+
+  const lo = Number(info?.lo ?? 0);
+  const hi = Number(info?.hi ?? 0);
+  const span = Math.max(hi - lo + 1, 1);
+  const chunks = Math.min(
+    DAY_MAX_CHUNKS,
+    Math.max(1, Math.ceil(total / DAY_CHUNK_RUNS)),
+  );
+
+  // Chunk by run-id ranges: a whole day aggregates to ~2–3.5 MB in one
+  // response, which Neon's HTTP endpoint sometimes aborts. Smaller chunks
+  // (fetched in parallel) are reliable; the global station rank keeps the
+  // `si` indices consistent across them.
+  const chunkRaws = await Promise.all(
+    Array.from({ length: chunks }, (_, i) => {
+      const a = lo + Math.floor((span * i) / chunks);
+      const b =
+        i === chunks - 1 ? hi : lo + Math.floor((span * (i + 1)) / chunks) - 1;
+      return withRetry(() =>
+        database.execute(sql`
+          WITH mid AS (
+            SELECT (${date}::date::timestamp AT TIME ZONE 'Europe/Rome') AS m
+          ),
+          strank AS (
+            SELECT st.code,
+                   (dense_rank() OVER (ORDER BY st.code COLLATE "C") - 1)::int AS si
+            FROM stations st
+            WHERE st.lat IS NOT NULL AND st.lon IS NOT NULL
+          )
+          SELECT r.id AS "runId", r.numero, r.categoria, r.origine,
+                 r.destinazione,
+                 COALESCE(r.provvedimento, 0) AS provvedimento,
+                 COALESCE(r.max_delay, 0) AS "delay",
+                 jsonb_agg(
+                   jsonb_build_array(
+                     sr.si,
+                     round((EXTRACT(EPOCH FROM (COALESCE(s.actual_arr, s.programmata_arr) - m.m)) / 60))::int,
+                     round((EXTRACT(EPOCH FROM (COALESCE(s.actual_dep, s.programmata_dep) - m.m)) / 60))::int,
+                     GREATEST(COALESCE(s.delay_arr, 0), COALESCE(s.delay_dep, 0))
+                   )
+                   ORDER BY s.order_idx, sr.si
+                 ) AS tl
+          FROM train_runs r
+          JOIN stops s ON s.run_id = r.id
+          JOIN strank sr ON sr.code = s.station_code
+          CROSS JOIN mid m
+          WHERE r.data_partenza = ${date}::date
+            AND r.id BETWEEN ${a} AND ${b}
+            AND COALESCE(s.actual_arr, s.programmata_arr,
+                         s.actual_dep, s.programmata_dep) IS NOT NULL
+          GROUP BY r.id, r.numero, r.categoria, r.origine, r.destinazione,
+                   r.provvedimento, r.max_delay
+          HAVING count(*) >= 2
+          ORDER BY r.id
+        `),
+      );
+    }),
+  );
+
+  const runs: DayReplayRun[] = [];
+  let minMin = Infinity;
+  let maxMin = -Infinity;
+  for (const raw of chunkRaws) {
+    for (const r of rowsOf<{
+      runId: number;
+      numero: string;
+      categoria: string | null;
+      origine: string | null;
+      destinazione: string | null;
+      provvedimento: number;
+      delay: number;
+      tl: number[][] | null;
+    }>(raw)) {
+      const tl = r.tl ?? [];
+      if (tl.length < 2) continue;
+      runs.push({
+        runId: r.runId,
+        numero: r.numero,
+        categoria: r.categoria ?? "",
+        origine: r.origine ?? "",
+        destinazione: r.destinazione ?? "",
+        provvedimento: r.provvedimento ?? 0,
+        delay: r.delay ?? 0,
+        tl,
+      });
+      for (const e of tl) {
+        for (const v of [e[1], e[2]]) {
+          if (v == null) continue;
+          if (v < minMin) minMin = v;
+          if (v > maxMin) maxMin = v;
+        }
+      }
+    }
+  }
+
+  if (!Number.isFinite(minMin)) {
+    minMin = 0;
+    maxMin = 0;
+  }
+  return { date, dbConfigured: true, midnightMs, minMin, maxMin, stations, runs };
 }

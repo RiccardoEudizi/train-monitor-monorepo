@@ -31,7 +31,7 @@ import { loadStationMarkers, type StationMarker } from "~/lib/map/italy-stations
  * nothing ships to SSR.
  */
 
-const MAX = 2048;
+const MAX = 4096;
 const WORLD = 140; // world units across the bounds square
 const SLAB = 2.5; // extrusion height
 // Everything on the map must sit ABOVE the slab top (y = SLAB), otherwise
@@ -122,6 +122,24 @@ export default function LiveMap3D(props: {
   selectedRunId?: number | null;
   /** Notifies the parent when the selected train changes. */
   onSelect?: (train: LiveTrain | null) => void;
+  /**
+   * Simulation clock. Defaults to the wall clock (live view); replay passes
+   * a function that returns the playback instant so positions interpolate
+   * against the recorded day instead of now.
+   */
+  clock?: () => number;
+  /**
+   * Recolour rails by nearest train on each `trains` reference change.
+   * Live polls every 12s so it is cheap; replay swaps the array ~5×/s, so it
+   * passes `false` and leaves the rails neutral.
+   */
+  recolorTracks?: boolean;
+  /**
+   * When this value changes, drop all motion state so dots re-seed at their
+   * ideal position on the next frame. Replay bumps it on every seek so
+   * scrubbing jumps instantly instead of easing across the whole day.
+   */
+  resetKey?: unknown;
 }) {
   let canvas: HTMLCanvasElement | undefined;
   let hudAnchor: HTMLDivElement | undefined;
@@ -141,6 +159,7 @@ export default function LiveMap3D(props: {
     // the synchronous onCleanup below so it runs inside the reactive owner.
     let disposeScene: (() => void) | undefined;
     const motion = new Map<number, MotionState>();
+    let lastResetKey: unknown = props.resetKey;
 
     // Load railway geometry asynchronously (fetched from /data/railways.json)
     loadRailwaySegments()
@@ -374,10 +393,10 @@ export default function LiveMap3D(props: {
         }
         segmentWorstStato.fill(-1);
 
+        const nowMs = props.clock ? props.clock() : Date.now();
         for (const train of trains) {
           const [tx, tz] = toWorld(train.prev.lon, train.prev.lat);
           const [bx, bz] = toWorld(train.next.lon, train.next.lat);
-          const nowMs = Date.now();
           const lf = legFrame(train, tx, tz, bx, bz, nowMs);
           const trainX = lf.idealX;
           const trainZ = lf.idealZ;
@@ -673,6 +692,13 @@ export default function LiveMap3D(props: {
         const dt = Math.min(t - last, 250);
         last = t;
 
+        // Replay seek: forget integrated motion so dots snap to the ideal
+        // position for the new instant instead of easing toward it.
+        if (props.resetKey !== lastResetKey) {
+          lastResetKey = props.resetKey;
+          motion.clear();
+        }
+
         // Lazily build tracks once railway segments finish loading.
         const segs = railwaySegments();
         if (segs.length > 0 && segs !== builtSegments) {
@@ -705,7 +731,8 @@ export default function LiveMap3D(props: {
         controls.enablePan = props.fullscreen === true;
         // Wall clock drives the timetable; rAF delta drives integration.
         // rAF stalls when the tab is hidden, dt clamp covers the gap.
-        const nowMs = Date.now();
+        // Replay supplies `clock` so the same model runs against playback.
+        const nowMs = props.clock ? props.clock() : Date.now();
         const seen = new Set<number>();
         for (let i = 0; i < list.length; i++) {
           const tr = list[i];
@@ -741,8 +768,9 @@ export default function LiveMap3D(props: {
 
         // Recolour tracks only when the train snapshot changes (12s poll),
         // NOT every frame. The track colour buffer is ~780k floats; uploading
-        // it per frame was the main performance bottleneck.
-        if (props.trains !== lastTrains) {
+        // it per frame was the main performance bottleneck. Replay disables
+        // this (its snapshot changes ~5×/s) via `recolorTracks`.
+        if (props.recolorTracks !== false && props.trains !== lastTrains) {
           updateTrackColors(list);
           lastTrains = props.trains;
         }

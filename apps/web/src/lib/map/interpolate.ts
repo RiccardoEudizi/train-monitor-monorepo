@@ -45,6 +45,11 @@ export interface LiveTrain {
   destinazione?: string;
   /** Name of the next stop the train is heading to. */
   nextStation?: string;
+  /**
+   * Anchors are already ACTUAL times (replay from recorded days), so
+   * `effectiveTimes` must not re-apply `delay` to `next.t`.
+   */
+  exact?: boolean;
 }
 
 /**
@@ -98,6 +103,12 @@ export function rawProgress(nowMs: number, tPrev: number, tNext: number): number
 /** Delay-aware effective anchor times for a train leg. */
 export function effectiveTimes(train: LiveTrain): { tPrev: number; tNext: number } {
   const tPrev = train.prev.t;
+  // Replay anchors are already actual times — never double-apply the delay.
+  if (train.exact) {
+    const tNext = train.next.t;
+    if (!(tNext > tPrev)) return { tPrev, tNext: tPrev + 60_000 };
+    return { tPrev, tNext };
+  }
   const delayMs = (Number.isFinite(train.delay) ? train.delay : 0) * 60_000;
   const tNext = train.next.t + delayMs;
   if (!(tNext > tPrev)) return { tPrev, tNext: tPrev + 60_000 };

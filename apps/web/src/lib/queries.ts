@@ -51,6 +51,13 @@ export const getMapRegionsQuery = query(async (period: string) => {
   return fetchMapRegions(period);
 }, "map-regions");
 
+/** Replay day picker: days with per-stop data (30-day hot window). */
+export const getReplayDaysQuery = query(async () => {
+  "use server";
+  const { fetchReplayDays } = await import("~/server/map-data");
+  return fetchReplayDays();
+}, "map-days");
+
 /**
  * Homepage hero counters. Same server function as /map renders its dots
  * (fetchLiveTrains), so the two pages report the same number for the same
