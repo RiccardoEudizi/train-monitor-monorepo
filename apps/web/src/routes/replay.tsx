@@ -2,6 +2,7 @@ import { createAsync } from "@solidjs/router";
 import type { RouteDefinition } from "@solidjs/router";
 import {
   createEffect,
+  createMemo,
   createSignal,
   For,
   onCleanup,
@@ -19,6 +20,7 @@ import { LIVE_LEGEND, statoColor } from "~/lib/map/colors";
 import type { LiveTrain } from "~/lib/map/interpolate";
 import {
   activeTrainsAt,
+  createReplayFeed,
   decodeDay,
   eventsAround,
   type DayReplay,
@@ -32,7 +34,7 @@ export const route = {
   preload: () => getReplayDaysQuery(),
 } satisfies RouteDefinition;
 
-const SPEEDS = [1, 3, 10] as const;
+const SPEEDS = [10, 50, 100] as const;
 const TRAINS_MS = 200; // refresh the active set ~5×/s
 const EVENTS_MS = 300; // refresh the event feed ~3×/s
 const UI_MS = 100; // throttle the clock signal the DOM reads
@@ -65,14 +67,12 @@ export default function ReplayPage() {
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [playing, setPlaying] = createSignal(true);
-  const [speed, setSpeed] = createSignal<(typeof SPEEDS)[number]>(3);
+  const [speed, setSpeed] = createSignal<(typeof SPEEDS)[number]>(10);
   const [cursorMs, setCursorMs] = createSignal(0);
   const [trains, setTrains] = createSignal<LiveTrain[]>([]);
   const [events, setEvents] = createSignal<ReplayEvent[]>([]);
   const [selected, setSelected] = createSignal<number | null>(null);
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
-  // Bumped on every seek so the 3D map snaps dots to the new instant.
-  const [resetKey, setResetKey] = createSignal(0);
 
   // Authoritative playback instant (plain var), read by the map's `clock`
   // every frame; `cursorMs` is the throttled mirror the DOM renders.
@@ -83,8 +83,14 @@ export default function ReplayPage() {
   const seek = (v: number) => {
     cursor = v;
     setCursorMs(v);
-    setResetKey((k) => k + 1);
   };
+
+  // Exact per-frame feed: the map pulls active trains (and their legs) every
+  // animation frame, so dots move continuously at any playback speed.
+  const feed = createMemo(() => {
+    const d = data();
+    return d ? createReplayFeed(d) : undefined;
+  });
 
   const loadDay = async (d: string) => {
     setLoading(true);
@@ -191,6 +197,20 @@ export default function ReplayPage() {
     setPlaying(true);
   };
 
+  // Pick a specific run: select it and, if it is not on the rails at the
+  // current instant, jump to its departure so it becomes visible.
+  const selectRun = (runId: number | null) => {
+    setSelected(runId);
+    if (runId == null) return;
+    const d = data();
+    if (!d) return;
+    const r = d.runs.find((x) => x.runId === runId);
+    if (r && (cursor < r.startMs || cursor > r.endMs)) {
+      seek(Math.max(d.minMs, r.startMs));
+      setPlaying(true);
+    }
+  };
+
   const inRitardo = () =>
     trains().filter(
       (t) => t.stato === "delayed" || t.stato === "heavily-delayed",
@@ -215,7 +235,7 @@ export default function ReplayPage() {
           fullscreen
           clock={clock}
           recolorTracks={false}
-          resetKey={resetKey()}
+          feed={feed()}
           selectedRunId={selected()}
           onSelect={(t) => setSelected(t?.runId ?? null)}
           renderHud={(tr, close) => <TrainHud train={tr} onClose={close} />}
@@ -312,10 +332,12 @@ export default function ReplayPage() {
           days={days()?.days ?? []}
           date={date()}
           onDate={setDate}
+          runs={data()?.runs ?? []}
           active={topTrains()}
           events={events()}
           selectedRunId={selected()}
           onSelect={setSelected}
+          onSelectRun={selectRun}
           open={sidebarOpen()}
           onToggle={setSidebarOpen}
           loading={loading()}

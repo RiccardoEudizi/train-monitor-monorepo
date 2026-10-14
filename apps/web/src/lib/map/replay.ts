@@ -149,6 +149,27 @@ export function decodeDay(raw: DayReplay): ReplayDay {
   };
 }
 
+interface LegIndices {
+  prevIdx: number;
+  nextIdx: number;
+  dwelling: boolean;
+}
+
+/** Locate the leg a run is on at `nowMs`, or null when it is off-service. */
+function findLeg(tl: ReplayRun["tl"], nowMs: number): LegIndices | null {
+  for (let i = 0; i < tl.length; i++) {
+    const a = tl[i][1];
+    const d = tl[i][2];
+    if (nowMs >= a && nowMs <= d) {
+      return { prevIdx: i, nextIdx: i, dwelling: true };
+    }
+    if (i + 1 < tl.length && nowMs > d && nowMs <= tl[i + 1][1]) {
+      return { prevIdx: i, nextIdx: i + 1, dwelling: false };
+    }
+  }
+  return null;
+}
+
 /**
  * Trains on the move (or dwelling) at `nowMs`, shaped as `LiveTrain` so the
  * 3D map renders them through the exact same pipeline as the live view.
@@ -156,58 +177,106 @@ export function decodeDay(raw: DayReplay): ReplayDay {
  */
 export function activeTrainsAt(day: ReplayDay, nowMs: number): LiveTrain[] {
   const out: LiveTrain[] = [];
-  const stations = day.stations;
-
   for (const r of day.runs) {
     if (r.provvedimento === 1) continue; // cancelled: never travels
     if (nowMs < r.startMs || nowMs > r.endMs) continue;
-
-    const tl = r.tl;
-    let prevIdx = -1;
-    let nextIdx = -1;
-    let dwelling = false;
-    for (let i = 0; i < tl.length; i++) {
-      const a = tl[i][1];
-      const d = tl[i][2];
-      if (nowMs >= a && nowMs <= d) {
-        prevIdx = i;
-        nextIdx = i;
-        dwelling = true;
-        break;
-      }
-      if (i + 1 < tl.length && nowMs > d && nowMs <= tl[i + 1][1]) {
-        prevIdx = i;
-        nextIdx = i + 1;
-        break;
-      }
-    }
-    if (prevIdx < 0) continue;
-
-    const prevStation = stations[tl[prevIdx][0]];
-    const nextStation = stations[tl[nextIdx][0]];
+    const leg = findLeg(r.tl, nowMs);
+    if (!leg) continue;
+    const prevStation = day.stations[r.tl[leg.prevIdx][0]];
+    const nextStation = day.stations[r.tl[leg.nextIdx][0]];
     if (!prevStation || !nextStation) continue;
-
-    const delay = tl[prevIdx][3] ?? 0;
-    const stato = statoFor(delay, r.provvedimento);
-    const prevT = dwelling ? tl[prevIdx][1] : tl[prevIdx][2];
-    const nextT = dwelling ? tl[nextIdx][2] : tl[nextIdx][1];
-
-    out.push({
-      runId: r.runId,
-      numero: r.numero,
-      categoria: r.categoria,
-      delay,
-      stato,
-      prev: { lat: prevStation[0], lon: prevStation[1], t: prevT },
-      next: { lat: nextStation[0], lon: nextStation[1], t: nextT },
-      updatedAt: "",
-      origine: r.origine,
-      destinazione: r.destinazione,
-      nextStation: dwelling ? prevStation[2] : nextStation[2],
-      exact: true,
-    });
+    out.push(
+      makeTrain(r, leg, prevStation, nextStation, {
+        runId: r.runId,
+        numero: r.numero,
+        categoria: r.categoria,
+        delay: 0,
+        stato: "ok",
+        prev: { lat: 0, lon: 0, t: 0 },
+        next: { lat: 0, lon: 0, t: 0 },
+        updatedAt: "",
+        origine: r.origine,
+        destinazione: r.destinazione,
+        nextStation: "",
+        exact: true,
+      }),
+    );
   }
   return out;
+}
+
+/**
+ * Per-frame feed for the 3D map: same result as `activeTrainsAt` but the
+ * array and its train objects are reused between calls (no per-frame
+ * allocation), and the map consumes them synchronously. This is what makes
+ * the dots move continuously at any playback speed.
+ */
+export function createReplayFeed(
+  day: ReplayDay,
+): (nowMs: number) => LiveTrain[] {
+  const pool = new Map<number, LiveTrain>();
+  const out: LiveTrain[] = [];
+  return (nowMs: number) => {
+    let n = 0;
+    for (const r of day.runs) {
+      if (r.provvedimento === 1) continue;
+      if (nowMs < r.startMs || nowMs > r.endMs) continue;
+      const leg = findLeg(r.tl, nowMs);
+      if (!leg) continue;
+      const prevStation = day.stations[r.tl[leg.prevIdx][0]];
+      const nextStation = day.stations[r.tl[leg.nextIdx][0]];
+      if (!prevStation || !nextStation) continue;
+      let t = pool.get(r.runId);
+      if (!t) {
+        t = {
+          runId: r.runId,
+          numero: r.numero,
+          categoria: r.categoria,
+          delay: 0,
+          stato: "ok",
+          prev: { lat: 0, lon: 0, t: 0 },
+          next: { lat: 0, lon: 0, t: 0 },
+          updatedAt: "",
+          origine: r.origine,
+          destinazione: r.destinazione,
+          nextStation: "",
+          exact: true,
+        };
+        pool.set(r.runId, t);
+      }
+      makeTrain(r, leg, prevStation, nextStation, t);
+      out[n++] = t;
+    }
+    out.length = n;
+    return out;
+  };
+}
+
+/** Fill (or create) a `LiveTrain` for a resolved leg. */
+function makeTrain(
+  r: ReplayRun,
+  leg: LegIndices,
+  prevStation: [number, number, string],
+  nextStation: [number, number, string],
+  t: LiveTrain,
+): LiveTrain {
+  const delay = r.tl[leg.prevIdx][3] ?? 0;
+  t.runId = r.runId;
+  t.numero = r.numero;
+  t.categoria = r.categoria;
+  t.delay = delay;
+  t.stato = statoFor(delay, r.provvedimento);
+  t.origine = r.origine;
+  t.destinazione = r.destinazione;
+  t.exact = true;
+  t.prev.lat = prevStation[0];
+  t.prev.lon = prevStation[1];
+  t.prev.t = leg.dwelling ? r.tl[leg.prevIdx][1] : r.tl[leg.prevIdx][2];
+  t.next.lat = nextStation[0];
+  t.next.lon = nextStation[1];
+  t.next.t = leg.dwelling ? r.tl[leg.nextIdx][2] : r.tl[leg.nextIdx][1];
+  t.nextStation = leg.dwelling ? prevStation[2] : nextStation[2];
+  return t;
 }
 
 /**

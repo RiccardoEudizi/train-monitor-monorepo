@@ -12,6 +12,7 @@ import { dissolvedRegion } from "~/lib/map/dissolve";
 import { useDark } from "~/lib/theme";
 import {
   legFrame,
+  legKeyFor,
   retargetMotion,
   stepMotion,
   type LiveTrain,
@@ -135,11 +136,12 @@ export default function LiveMap3D(props: {
    */
   recolorTracks?: boolean;
   /**
-   * When this value changes, drop all motion state so dots re-seed at their
-   * ideal position on the next frame. Replay bumps it on every seek so
-   * scrubbing jumps instantly instead of easing across the whole day.
+   * Exact per-frame train feed (replay). When set, the map pulls the current
+   * trains — and their legs — every animation frame, so dots move
+   * continuously at any playback speed instead of stepping between updates.
+   * The returned array may be reused/mutated between calls.
    */
-  resetKey?: unknown;
+  feed?: (nowMs: number) => LiveTrain[];
 }) {
   let canvas: HTMLCanvasElement | undefined;
   let hudAnchor: HTMLDivElement | undefined;
@@ -159,7 +161,9 @@ export default function LiveMap3D(props: {
     // the synchronous onCleanup below so it runs inside the reactive owner.
     let disposeScene: (() => void) | undefined;
     const motion = new Map<number, MotionState>();
-    let lastResetKey: unknown = props.resetKey;
+    // Latest list handed to the frame loop (from `feed` or `trains`), kept so
+    // pointer picking can hit exactly what was just drawn.
+    let frameTrains: LiveTrain[] = [];
 
     // Load railway geometry asynchronously (fetched from /data/railways.json)
     loadRailwaySegments()
@@ -634,7 +638,9 @@ export default function LiveMap3D(props: {
         const py = clientY - rect.top;
         let best: LiveTrain | null = null;
         let bestD = 18; // px pick radius
-        for (const tr of props.trains.slice(0, MAX)) {
+        const list =
+          frameTrains.length > MAX ? frameTrains.slice(0, MAX) : frameTrains;
+        for (const tr of list) {
           const st = motion.get(tr.runId);
           if (!st) continue;
           const s = projectToScreen(st.x, st.z);
@@ -692,13 +698,6 @@ export default function LiveMap3D(props: {
         const dt = Math.min(t - last, 250);
         last = t;
 
-        // Replay seek: forget integrated motion so dots snap to the ideal
-        // position for the new instant instead of easing toward it.
-        if (props.resetKey !== lastResetKey) {
-          lastResetKey = props.resetKey;
-          motion.clear();
-        }
-
         // Lazily build tracks once railway segments finish loading.
         const segs = railwaySegments();
         if (segs.length > 0 && segs !== builtSegments) {
@@ -725,14 +724,17 @@ export default function LiveMap3D(props: {
         if (trackLines) trackLines.visible = props.showTracks !== false;
         if (stationDots) stationDots.visible = props.showStations !== false;
 
-        const list = props.trains.slice(0, MAX);
+        // Wall clock drives the timetable; rAF delta drives integration.
+        // rAF stalls when the tab is hidden, dt clamp covers the gap.
+        // Replay supplies `clock` + `feed` so the same scene runs against the
+        // recorded day, pulling exact legs every frame (no stepping).
+        const nowMs = props.clock ? props.clock() : Date.now();
+        const raw = props.feed ? props.feed(nowMs) : props.trains;
+        frameTrains = raw;
+        const list = raw.length > MAX ? raw.slice(0, MAX) : raw;
         // Fullscreen unlocks panning; clicking is handled by the listeners.
         const selId = props.selectedRunId ?? null;
         controls.enablePan = props.fullscreen === true;
-        // Wall clock drives the timetable; rAF delta drives integration.
-        // rAF stalls when the tab is hidden, dt clamp covers the gap.
-        // Replay supplies `clock` so the same model runs against playback.
-        const nowMs = props.clock ? props.clock() : Date.now();
         const seen = new Set<number>();
         for (let i = 0; i < list.length; i++) {
           const tr = list[i];
@@ -742,9 +744,21 @@ export default function LiveMap3D(props: {
           // Interpolate in world XZ so long legs keep constant speed
           // in screen space instead of raw lat/lon.
           const lf = legFrame(tr, ax, az, bx, bz, nowMs);
-          let st = motion.get(tr.runId);
-          st = retargetMotion(st, tr, lf);
-          st = stepMotion(st, dt / 1000);
+          let st: MotionState;
+          if (props.feed) {
+            // Replay: the feed already resolves the exact leg for this
+            // instant, so place the dot analytically (no easing lag).
+            st = {
+              x: lf.idealX,
+              z: lf.idealZ,
+              vx: lf.cruiseVX,
+              vz: lf.cruiseVZ,
+              legKey: legKeyFor(tr),
+            };
+          } else {
+            st = retargetMotion(motion.get(tr.runId), tr, lf);
+            st = stepMotion(st, dt / 1000);
+          }
           motion.set(tr.runId, st);
           positions[i * 3] = st.x;
           positions[i * 3 + 1] = HOVER_Y;

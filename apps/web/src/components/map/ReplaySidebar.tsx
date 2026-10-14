@@ -1,9 +1,10 @@
 import { For, Show } from "solid-js";
 import type { LiveTrain } from "~/lib/map/interpolate";
-import type { ReplayDayInfo, ReplayEvent } from "~/lib/map/replay";
+import type { ReplayDayInfo, ReplayEvent, ReplayRun } from "~/lib/map/replay";
 import { statoColor } from "~/lib/map/colors";
 import { fmtDateEU, fmtTime } from "~/lib/format";
 import { Spinner } from "~/components/ui";
+import ReplayRunPicker from "./ReplayRunPicker";
 
 const STATO_LABEL: Record<string, string> = {
   ok: "in orario",
@@ -27,10 +28,12 @@ export default function ReplaySidebar(props: {
   days: ReplayDayInfo[];
   date: string | null;
   onDate: (date: string) => void;
+  runs: ReplayRun[];
   active: LiveTrain[];
   events: ReplayEvent[];
   selectedRunId: number | null;
   onSelect: (runId: number) => void;
+  onSelectRun: (runId: number | null) => void;
   open: boolean;
   onToggle: (open: boolean) => void;
   loading: boolean;
@@ -92,6 +95,15 @@ export default function ReplaySidebar(props: {
             <Spinner label="carico il giorno" slim />
           </div>
         </Show>
+
+        {/* Pick a specific run to follow */}
+        <div class="border-b border-zinc-200 dark:border-zinc-800">
+          <ReplayRunPicker
+            runs={props.runs}
+            selectedRunId={props.selectedRunId}
+            onSelect={props.onSelectRun}
+          />
+        </div>
 
         {/* Body */}
         <div class="min-h-0 flex-1 overflow-y-auto">
