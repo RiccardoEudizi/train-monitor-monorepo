@@ -30,6 +30,8 @@ export default function ReplaySidebar(props: {
   onDate: (date: string) => void;
   runs: ReplayRun[];
   active: LiveTrain[];
+  /** Total travelling at the current instant (active may be capped). */
+  total: number;
   events: ReplayEvent[];
   selectedRunId: number | null;
   onSelect: (runId: number) => void;
@@ -114,7 +116,7 @@ export default function ReplaySidebar(props: {
                 in viaggio
               </span>
               <span class="tabular-nums text-zinc-500">
-                {props.active.length}
+                {props.total}
               </span>
             </div>
             <Show

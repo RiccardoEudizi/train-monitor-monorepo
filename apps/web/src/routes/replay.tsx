@@ -249,6 +249,14 @@ export default function ReplayPage() {
               {data() ? fmtTimeSec(iso()) : "--:--:--"}
             </span>
             <span class="text-xs text-zinc-500">{fmtDateEU(date())}</span>
+            <span class="flex items-baseline gap-1 border-l border-zinc-300 pl-2 dark:border-zinc-700">
+              <span class="text-lg font-bold tabular-nums leading-none">
+                {trains().length}
+              </span>
+              <span class="text-[10px] uppercase tracking-wider text-zinc-500">
+                in viaggio
+              </span>
+            </span>
             <span class="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white dark:bg-zinc-100 dark:text-zinc-900">
               {speed()}×
             </span>
@@ -334,6 +342,7 @@ export default function ReplayPage() {
           onDate={setDate}
           runs={data()?.runs ?? []}
           active={topTrains()}
+          total={trains().length}
           events={events()}
           selectedRunId={selected()}
           onSelect={setSelected}
