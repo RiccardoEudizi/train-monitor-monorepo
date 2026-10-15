@@ -7,7 +7,7 @@ import {
   type JSX,
 } from "solid-js";
 import type * as THREE from "three";
-import { ITALY_REGIONS, MAP_BOUNDS } from "~/lib/map/italy-regions";
+import { ITALY_REGIONS } from "~/lib/map/italy-regions";
 import { dissolvedRegion } from "~/lib/map/dissolve";
 import { useDark } from "~/lib/theme";
 import {
@@ -19,6 +19,9 @@ import {
   type MotionState,
 } from "~/lib/map/interpolate";
 import { statoColor } from "~/lib/map/colors";
+import { routeSample } from "~/lib/map/rail-route";
+import { RailClient } from "~/lib/map/rail-client";
+import { WORLD, toWorld } from "~/lib/map/map-projection";
 import { loadRailwaySegments, type RailwaySegment } from "~/lib/map/italy-railways";
 import { loadStationMarkers, type StationMarker } from "~/lib/map/italy-stations";
 
@@ -33,25 +36,12 @@ import { loadStationMarkers, type StationMarker } from "~/lib/map/italy-stations
  */
 
 const MAX = 4096;
-const WORLD = 140; // world units across the bounds square
 const SLAB = 2.5; // extrusion height
 // Everything on the map must sit ABOVE the slab top (y = SLAB), otherwise
 // it is occluded by the extruded regions.
 const TRACK_Y = SLAB + 0.1; // railway lines: just above the slab top
 const STATION_Y = SLAB + 0.16; // station markers: a touch higher
 const HOVER_Y = 3.6; // train dot altitude: above tracks/stations
-
-function toWorld(lon: number, lat: number): [number, number] {
-  const x =
-    ((lon - MAP_BOUNDS.minLon) / (MAP_BOUNDS.maxLon - MAP_BOUNDS.minLon)) *
-      WORLD -
-    WORLD / 2;
-  const z =
-    ((MAP_BOUNDS.maxLat - lat) / (MAP_BOUNDS.maxLat - MAP_BOUNDS.minLat)) *
-      WORLD -
-    WORLD / 2;
-  return [x, z];
-}
 
 // Base point sizes in the same units as the station markers (major 2.0,
 // minor 1.2): train dots are kept small, with a subtle status bump.
@@ -164,6 +154,9 @@ export default function LiveMap3D(props: {
     // Latest list handed to the frame loop (from `feed` or `trains`), kept so
     // pointer picking can hit exactly what was just drawn.
     let frameTrains: LiveTrain[] = [];
+    // Rail router worker (started once the segments load); dots follow the
+    // track polyline where the (simplified) data allows, else straight.
+    let rail: RailClient | null = null;
 
     // Load railway geometry asynchronously (fetched from /data/railways.json)
     loadRailwaySegments()
@@ -704,6 +697,12 @@ export default function LiveMap3D(props: {
           buildTracks(segs);
           builtSegments = segs;
           lastTrains = null; // force a recolour on the freshly built buffer
+          // Start the rail router worker off the first painted frame: it
+          // builds a ~100k-node graph, which would stall the main thread.
+          if (!rail) {
+            rail = new RailClient();
+            rail.init(segs);
+          }
         }
 
         // Lazily build station markers once they finish loading.
@@ -744,6 +743,28 @@ export default function LiveMap3D(props: {
           // Interpolate in world XZ so long legs keep constant speed
           // in screen space instead of raw lat/lon.
           const lf = legFrame(tr, ax, az, bx, bz, nowMs);
+          // If the railway route for this leg is ready, ride it: the ideal
+          // point (and cruise velocity) follow the track polyline instead of
+          // the straight chord between stations.
+          if (rail) {
+            const route = rail.route(
+              tr.prev.lon,
+              tr.prev.lat,
+              tr.next.lon,
+              tr.next.lat,
+            );
+            if (route) {
+              const s = routeSample(route, lf.p);
+              lf.idealX = s.x;
+              lf.idealZ = s.z;
+              if (s.len > 0 && lf.dpdt > 0) {
+                const speed = s.len * lf.dpdt;
+                lf.cruiseSpeed = speed;
+                lf.cruiseVX = speed * s.tx;
+                lf.cruiseVZ = speed * s.tz;
+              }
+            }
+          }
           let st: MotionState;
           if (props.feed) {
             // Replay: the feed already resolves the exact leg for this
@@ -810,6 +831,7 @@ export default function LiveMap3D(props: {
         cancelAnimationFrame(raf);
         ro.disconnect();
         controls.dispose();
+        rail?.dispose();
         el.removeEventListener("pointerdown", onPointerDown);
         el.removeEventListener("pointerup", onPointerUp);
         el.removeEventListener("pointermove", onPointerMove);

@@ -246,6 +246,10 @@ export interface LegFrame {
   cruiseVX: number;
   cruiseVZ: number;
   cruiseSpeed: number;
+  /** Trapezoid progress along the leg, 0…1. */
+  p: number;
+  /** dp/dt in 1/s (0 while dwelling). */
+  dpdt: number;
 }
 
 /**
@@ -282,6 +286,8 @@ export function legFrame(
     cruiseVX: (bx - ax) * dpdt,
     cruiseVZ: (bz - az) * dpdt,
     cruiseSpeed: Math.hypot(bx - ax, bz - az) * dpdt,
+    p,
+    dpdt,
   };
 }
 
