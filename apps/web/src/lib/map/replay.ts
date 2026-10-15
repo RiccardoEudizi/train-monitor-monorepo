@@ -88,6 +88,7 @@ export interface ReplayEvent {
 }
 
 const MIN_MS = 60_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Decode the wire payload into absolute-ms timelines. Times are clamped to
@@ -97,8 +98,6 @@ const MIN_MS = 60_000;
 export function decodeDay(raw: DayReplay): ReplayDay {
   const mid = raw.midnightMs;
   const runs: ReplayRun[] = [];
-  let minMs = Infinity;
-  let maxMs = -Infinity;
 
   for (const r of raw.runs) {
     const tl: ReplayRun["tl"] = [];
@@ -119,8 +118,6 @@ export function decodeDay(raw: DayReplay): ReplayDay {
     const startMs = tl[0][1];
     const endMs = tl[tl.length - 1][2];
     if (!(endMs > startMs)) continue;
-    if (startMs < minMs) minMs = startMs;
-    if (endMs > maxMs) maxMs = endMs;
     runs.push({
       runId: r.runId,
       numero: r.numero,
@@ -135,10 +132,10 @@ export function decodeDay(raw: DayReplay): ReplayDay {
     });
   }
 
-  if (!Number.isFinite(minMs)) {
-    minMs = 0;
-    maxMs = 0;
-  }
+  // Playback window is exactly the calendar day: 00:00 → 23:59 (night trains
+  // that run past midnight simply stop at the end of the day).
+  const minMs = mid;
+  const maxMs = mid > 0 ? mid + DAY_MS - MIN_MS : 0;
   return {
     date: raw.date,
     dbConfigured: raw.dbConfigured,
