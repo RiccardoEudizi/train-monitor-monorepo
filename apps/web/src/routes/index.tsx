@@ -25,6 +25,7 @@ import {
 } from "~/components/ui";
 import { AsciiFx, PixelValue } from "~/components/fx";
 import Seo from "~/components/Seo";
+import { fmtDateEU } from "~/lib/format";
 import type { StationItem, StatsPeriod } from "~/lib/api-types";
 import { getDelaysQuery, getLiveCountsQuery, getNewsQuery, getOverviewQuery } from "~/lib/queries";
 import { pageTitle, SITE_DESCRIPTION } from "~/lib/seo";
@@ -423,6 +424,17 @@ export default function Home() {
                 </div>
               </div>
             </div>
+            <Show when={overview.latest?.national.worstTrain}>
+              {(w) => (
+                <div class="mt-4 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                  <p class="mb-2 flex items-baseline justify-between text-[11px] uppercase tracking-widest text-zinc-500">
+                    <span>treno con più ritardo · {ovPeriod()}</span>
+                    <span class="tabular-nums">{fmtDateEU(w().runDate)}</span>
+                  </p>
+                  <TrainRow t={w()} />
+                </div>
+              )}
+            </Show>
             <Show when={(overview.latest?.regions ?? []).length > 1}>
               <div class="mt-4 min-w-0 max-w-full overflow-hidden border-t border-zinc-200 pt-3 dark:border-zinc-800">
                 <p class="mb-2 text-[11px] uppercase tracking-widest text-zinc-500">

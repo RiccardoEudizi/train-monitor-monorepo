@@ -853,6 +853,16 @@ function rowsOf<T>(raw: unknown): T[] {
   return Array.isArray(raw) ? (raw as T[]) : ((raw as { rows?: T[] }).rows ?? []);
 }
 
+/** Normalize a raw timestamptz (Date | string | null) to an ISO string. */
+function isoOf(v: unknown): string | null {
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === "string" && v) {
+    const t = new Date(v);
+    return Number.isFinite(t.getTime()) ? t.toISOString() : null;
+  }
+  return null;
+}
+
 /**
  * Region delay aggregates for the choropleth / overview ranking, computed in
  * SQL. Returns ~20 rows instead of the 137k per-run rows the old path shipped
@@ -983,6 +993,112 @@ async function fetchGlobalStatsSQL(
   const avgFinal = a?.avg_final ?? 0;
   const avgMaxEnroute = a?.avg_max ?? 0;
 
+  // Worst train of the period: highest final delay, matching the ranking
+  // order of fetchDelays. Bounded periods read the hot window (run id +
+  // times available); "total" reads the forever rollup (summary only).
+  let worstTrain: PeriodStats["worstTrain"] = null;
+  try {
+    if (sinceDate) {
+      const rows = rowsOf<{
+        run_id: number;
+        numero: string;
+        categoria: string | null;
+        origine: string | null;
+        destinazione: string | null;
+        run_date: string;
+        orario_partenza: unknown;
+        orario_arrivo: unknown;
+        delay: number;
+        last_rilevamento_at: unknown;
+        last_rilevamento_stazione: string | null;
+        provvedimento: number;
+      }>(await database.execute(sql`
+        SELECT id AS run_id, numero, categoria, origine, destinazione,
+               data_partenza::text AS run_date,
+               orario_partenza, orario_arrivo,
+               COALESCE(last_delay, 0)::int AS delay,
+               last_rilevamento_at, last_rilevamento_stazione,
+               COALESCE(provvedimento, 0)::int AS provvedimento
+        FROM train_runs
+        WHERE data_partenza >= ${sinceDate}
+        ORDER BY COALESCE(last_delay, 0) DESC, COALESCE(max_delay, 0) DESC
+        LIMIT 1
+      `));
+      const w = rows[0];
+      if (w) {
+        const orarioPartenza = isoOf(w.orario_partenza);
+        const orarioArrivo = isoOf(w.orario_arrivo);
+        worstTrain = {
+          runId: w.run_id,
+          numero: w.numero,
+          categoria: w.categoria ?? "",
+          origine: w.origine ?? "",
+          destinazione: w.destinazione ?? "",
+          dataPartenza: w.run_date,
+          scheduled: orarioPartenza,
+          expected: orarioArrivo,
+          delay: w.delay,
+          binarioProg: null,
+          binarioReal: null,
+          stato: statoFor(w.delay, w.provvedimento),
+          temporalStatus: temporalStatus(
+            orarioPartenza,
+            orarioArrivo,
+            new Date(),
+            w.delay,
+          ),
+          orarioPartenza,
+          orarioArrivo,
+          lastRilevamento: isoOf(w.last_rilevamento_at),
+          lastRilevamentoStazione: w.last_rilevamento_stazione,
+          runDate: w.run_date,
+        };
+      }
+    } else {
+      const rows = rowsOf<{
+        numero: string;
+        origine: string | null;
+        destinazione: string | null;
+        run_date: string;
+        delay: number;
+        provvedimento: number;
+      }>(await database.execute(sql`
+        SELECT numero, origine, destinazione,
+               run_date::text AS run_date,
+               COALESCE(last_delay, 0)::int AS delay,
+               COALESCE(provvedimento, 0)::int AS provvedimento
+        FROM daily_train_stats
+        ORDER BY COALESCE(last_delay, 0) DESC, COALESCE(max_delay, 0) DESC
+        LIMIT 1
+      `));
+      const w = rows[0];
+      if (w) {
+        worstTrain = {
+          runId: null,
+          numero: w.numero,
+          categoria: "",
+          origine: w.origine ?? "",
+          destinazione: w.destinazione ?? "",
+          dataPartenza: w.run_date,
+          scheduled: null,
+          expected: null,
+          delay: w.delay,
+          binarioProg: null,
+          binarioReal: null,
+          stato: statoFor(w.delay, w.provvedimento),
+          temporalStatus: "ended",
+          orarioPartenza: null,
+          orarioArrivo: null,
+          lastRilevamento: null,
+          lastRilevamentoStazione: null,
+          runDate: w.run_date,
+        };
+      }
+    }
+  } catch (e) {
+    logError("worst train query failed", e);
+  }
+
   return {
     runs,
     avgFinal,
@@ -995,7 +1111,7 @@ async function fetchGlobalStatsSQL(
     delayedCount: a?.delayed_count ?? 0,
     delayedRate: rate(a?.delayed_count ?? 0, runs),
     totalDelay: a?.total_delay ?? 0,
-    worstTrain: null,
+    worstTrain,
     series,
     dbConfigured: true,
     period,
