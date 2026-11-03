@@ -58,12 +58,15 @@ Go poller ───────────► PostgreSQL (Neon)
   tiered scheduler         │  train_runs · stops · daily_* rollups
   change-only writes       ▼
                     SolidStart app (Vercel) ──SSE──► browser
+                      in-app hub: one poll per scope
 ```
 
 Two deployables share one `DATABASE_URL`:
 
 1. **Web** (`apps/web`) — SolidStart SSR app on Vercel. **Never** calls ViaggiaTreno
-   directly; it only reads Postgres.
+   directly; it only reads Postgres. It also owns the live SSE hub (no separate
+   service): `/api/live` keeps one poller per scope and fans it out to every
+   connected viewer.
 2. **Poller** (`services/poller`) — a Go ingester on its own always-on host. It
    discovers runs, refreshes only those in their live window, and only rewrites a
    run when its delay actually changed.
@@ -84,7 +87,7 @@ Two deployables share one `DATABASE_URL`:
 | `apps/web/` | SolidStart app (pages, API routes, 3D map, charts) — see [`apps/web/README.md`](apps/web/README.md) |
 | `services/poller/` | Go ingester: discovery → detail → store → rollup — see [`services/poller/README.md`](services/poller/README.md) |
 | `docs/` | Screenshots |
-| `.env.example` | Combined env template (`DATABASE_URL` + poller vars) |
+| `.env.example` | Combined env template (`DATABASE_URL` + poller + live hub vars) |
 
 ## Getting started
 
@@ -113,6 +116,7 @@ pnpm poller:run        # tiered scheduler: live trains every 40s, discovery ever
 | `pnpm db:generate` / `db:migrate` / `db:studio` | generate/migrate/inspect (prod uses migrate) |
 | `pnpm poller:run` / `poller:seed` | `go run ./cmd/poller` / `./cmd/seed` in `services/poller` |
 | `pnpm poller:vet` / `poller:build` | `go vet ./...` / build binary to `bin/poller` |
+| `pnpm test` | live-hub unit tests in `apps/web` (no DB) |
 
 ## Configuration
 
@@ -148,6 +152,13 @@ skipped, not errors.
 **Push, don't poll (in the browser).** The client subscribes to a single SSE
 endpoint; the server diffs against the last snapshot and pushes only changes
 (or a heartbeat). No client polling.
+
+**One poll per scope, not per viewer.** `/api/live` keeps a single snapshot
+poller for each scope (`global`, `station:…`, `train:…`) and fans the diff out
+to every subscriber on that process. Polling starts on the first viewer, stops
+shortly after the last one leaves, and late joiners get the cached snapshot
+immediately. On Vercel the hub is per warm function instance, so the coalescing
+is per-instance; self-hosted (`pnpm start`) it is a true singleton.
 
 **Degraded mode.** Without `DATABASE_URL` the app still renders: station search
 falls back to the seeded Tier-1 list and dashboards show banners instead of

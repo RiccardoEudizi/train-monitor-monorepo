@@ -57,6 +57,7 @@ Live data is written by the Go poller (`../../services/poller`): `stations`, `tr
 
 - `src/routes/` file-routes + `src/app.tsx` (`Router` + `FileRoutes` + `Nav`)
 - `src/server/data.ts` shared fetchers used by both `src/routes/api/*` adapters and `src/lib/queries.ts` `query()` + `createAsync` SSR functions
+- `src/server/live-hub.ts` per-scope SSE fan-out (pure, unit-tested; used by `routes/api/live.ts`)
 - `src/lib/api-types.ts` UI-ready shapes (`TrainCard`, `StopRow`, `PeriodStats`, `RegionStat`) + `statoFor` / `temporalStatus` / `displayStatus`
 - `src/lib/sse.ts` `useLive()` EventSource helper (backoff, hydration-safe)
 - `src/components/` `Nav`, `CommandPalette` (Ctrl+K), `ui` (`Card`, `EmptyState`, `ErrorBox`, `Field`, `TrainRow`, ASCII charts), `fx` (CSS transitions)
@@ -71,7 +72,7 @@ Live data is written by the Go poller (`../../services/poller`): `stations`, `tr
 | `/stazione/[code]` board + 30d history | `GET /api/board?station=`, `GET /api/stats?scope=station&code=&period=`, `GET /api/live?station=` |
 | `/treno/[numero]` detail + stops + history | `GET /api/train?n=&origine=&date=` (`candidates[]+live+stops[]`), `GET /api/stats?scope=train&numero=&period=`, `GET /api/live?train=` |
 
-Also: `GET /api/stations?q=` (q>=2 chars), `GET /api/stats?scope=overview&period=1d|7d|30d|total` (aliases `24h/day`, `week`, `month`, `all/totale`), `GET /api/news`, `GET /api/live` SSE (12s DB poll, change-only push else `heartbeat:true`).
+Also: `GET /api/stations?q=` (q>=2 chars), `GET /api/stats?scope=overview&period=1d|7d|30d|total` (aliases `24h/day`, `week`, `month`, `all/totale`), `GET /api/news`, `GET /api/live` SSE (one 12s poll per scope, change-only push else `heartbeat:true`).
 
 ## Stats model
 
@@ -84,6 +85,8 @@ Without `DATABASE_URL`: `db()==null → dbConfigured:false`. Station search + bo
 ## Live updates
 
 SSE at `/api/live[?station=][?train=]`, 12s poll, diff-push or heartbeat. Client `useLive()` connects only after mount (no hydration mismatch), exponential backoff to 30s, `revalidate()` on data messages.
+
+The route owns an in-process hub (`src/server/live-hub.ts`): one timer per scope, shared by every subscriber on that process, started on the first viewer and stopped after the last leaves. Late joiners get the cached snapshot immediately. On Vercel this is per warm function instance; self-hosted it is a true singleton. Tests: `pnpm --filter web test`.
 
 ## Responsive layout
 
