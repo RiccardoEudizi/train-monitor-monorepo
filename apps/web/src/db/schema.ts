@@ -110,9 +110,9 @@ export const stops = pgTable(
 );
 
 /**
- * Rolled-up daily per-stop stats for charts. Written by the poller rollup
- * from the current `stops` truth (converges to end-of-day); kept forever.
- * `samples` is legacy (always 1 since stop_snapshots removal) and unread.
+ * Rolled-up daily per-stop stats for the hot window only (pruned by the
+ * poller after STOP_STATS_RETENTION_DAYS, default 30). Writes converge to
+ * end-of-day truth. All-time station totals live in `daily_station_stats`.
  */
 export const dailyStopStats = pgTable(
   "daily_stop_stats",
@@ -124,7 +124,6 @@ export const dailyStopStats = pgTable(
     delayArrFinal: integer("delay_arr_final").notNull().default(0),
     delayMax: integer("delay_max").notNull().default(0),
     cancelled: boolean("cancelled").notNull().default(false),
-    samples: integer("samples").notNull().default(0),
   },
   (t) => [
     uniqueIndex("daily_stats_unique_idx").on(
@@ -132,8 +131,37 @@ export const dailyStopStats = pgTable(
       t.numero,
       t.stationCode,
     ),
-    index("daily_stats_numero_idx").on(t.numero),
     index("daily_stats_station_idx").on(t.stationCode),
+  ],
+);
+
+/**
+ * Rolled-up station-day stats, kept forever. One row per (run_date,
+ * station_code); written by the poller from the same stops the per-stop
+ * rollup uses. Serves station totals/series once `daily_stop_stats` is
+ * pruned. `p95Final` is per-day; multi-day reads use a runs-weighted mean.
+ */
+export const dailyStationStats = pgTable(
+  "daily_station_stats",
+  {
+    id: serial("id").primaryKey(),
+    runDate: date("run_date").notNull(),
+    stationCode: text("station_code").notNull(),
+    runs: integer("runs").notNull().default(0),
+    sumFinal: integer("sum_final").notNull().default(0),
+    sumMax: integer("sum_max").notNull().default(0),
+    maxDelay: integer("max_delay").notNull().default(0),
+    cancelled: integer("cancelled").notNull().default(0),
+    delayed: integer("delayed").notNull().default(0),
+    p95Final: integer("p95_final").notNull().default(0),
+    worstNumero: text("worst_numero"),
+    worstDelay: integer("worst_delay").notNull().default(0),
+    worstFinal: integer("worst_final").notNull().default(0),
+    worstCancelled: boolean("worst_cancelled").notNull().default(false),
+  },
+  (t) => [
+    uniqueIndex("daily_station_stats_unique_idx").on(t.runDate, t.stationCode),
+    index("daily_station_stats_station_idx").on(t.stationCode, t.runDate),
   ],
 );
 
@@ -158,6 +186,10 @@ export const dailyTrainStats = pgTable(
     provvedimento: integer("provvedimento").notNull().default(0),
     regionId: integer("region_id"),
     regionStation: text("region_station"),
+    /** Stops with actual data in this run, for pruned-train history. */
+    stopsCount: integer("stops_count").notNull().default(0),
+    /** Mean max(delay_arr, delay_dep) across those stops. */
+    avgStopDelay: integer("avg_stop_delay").notNull().default(0),
   },
   (t) => [
     uniqueIndex("daily_train_stats_unique_idx").on(
@@ -187,4 +219,5 @@ export type Station = typeof stations.$inferSelect;
 export type TrainRun = typeof trainRuns.$inferSelect;
 export type Stop = typeof stops.$inferSelect;
 export type DailyStopStat = typeof dailyStopStats.$inferSelect;
+export type DailyStationStat = typeof dailyStationStats.$inferSelect;
 export type DailyTrainStat = typeof dailyTrainStats.$inferSelect;

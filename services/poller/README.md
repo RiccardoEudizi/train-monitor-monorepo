@@ -21,9 +21,11 @@ Tiered scheduler (no night slowdown — the 40s live cadence runs 24/7):
    `ritardo` / `provvedimento` / `oraUltimoRilevamento` changed — static schedule
    data is never rewritten and finished trains are never refetched.
 3. **Rollup** (every `ROLLUP_INTERVAL_SECONDS`, default 600) — today's stops folded
-   into `daily_stop_stats` and today's runs into `daily_train_stats` (both upserted,
-   converge to end-of-day truth, kept forever); `train_runs`/`stops` older than 30
-   days deleted once a day (cascades to `stops`).
+   into `daily_stop_stats` (per-stop, pruned after `STOP_STATS_RETENTION_DAYS`),
+   `daily_station_stats` (one row per station-day, kept forever) and today's runs
+   into `daily_train_stats` (per-run, kept forever); all upserted, converge to
+   end-of-day truth. Once a day: `train_runs`/`stops` older than 30 days are deleted
+   (cascades to `stops`) and `daily_stop_stats` is pruned to the stop-stats window.
 4. **Info** — `statistiche` every `STATS_INTERVAL_SECONDS` (default 300) +
    `infomobilitaTicker` every `TICKER_INTERVAL_SECONDS` (default 900) →
    `info_news` (national counters + ticker items as `string[]`).
@@ -42,6 +44,7 @@ psql $DATABASE_URL -f migrations/005_drop_snapshots.sql  # existing DBs only
 psql $DATABASE_URL -f migrations/006_daily_train_stats.sql  # existing DBs only
 psql $DATABASE_URL -f migrations/007_daily_train_names.sql  # existing DBs only
 psql $DATABASE_URL -f migrations/008_daily_train_stats_id.sql  # existing DBs only
+psql $DATABASE_URL -f migrations/010_daily_station_stats.sql   # station-day rollup + prune prep
 go run ./cmd/seed      # all stations from elencoStazioni/0..22 (never touches is_major)
 go run ./cmd/poller    # tiered scheduler: live trains every 40s, discovery every 5m
 ```
@@ -66,6 +69,7 @@ is safe: it upserts station details without clearing `is_major`.
 | `POST_ARRIVAL_GRACE_MINUTES` | `5` | Run stays live this long past `orario_arrivo` + delay |
 | `WORKERS` | `25` | Max concurrent ViaggiaTreno requests |
 | `MAJORS_ONLY` | `true` | Poll only `is_major` stations; `false` sweeps all seeded stations |
+| `STOP_STATS_RETENTION_DAYS` | `7` | Hot window for per-stop `daily_stop_stats`; station totals never expire. Keep the web env in sync |
 
 Env lookup: `services/poller/.env`, then the monorepo-root `.env` (a single root `.env` covers both the poller and the web app). Real environment variables always win.
 

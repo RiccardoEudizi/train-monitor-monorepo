@@ -102,7 +102,7 @@ pnpm db:push           # create tables (drizzle, dev)
 pnpm dev
 
 # --- poller (another shell) ---
-for f in 001_schema 004_majors 009_rfi_topup 005_drop_snapshots 006_daily_train_stats 007_daily_train_names 008_daily_train_stats_id; do
+for f in 001_schema 004_majors 009_rfi_topup 005_drop_snapshots 006_daily_train_stats 007_daily_train_names 008_daily_train_stats_id 010_daily_station_stats; do
   psql $DATABASE_URL -f services/poller/migrations/$f.sql   # fresh install
 done
 pnpm poller:seed       # all stations from elencoStazioni (never touches is_major)
@@ -128,6 +128,7 @@ pnpm poller:run        # tiered scheduler: live trains every 40s, discovery ever
 | `ROLLUP_INTERVAL_SECONDS` | `600` | Fold today's data into `daily_*` aggregates |
 | `WORKERS` | `25` | Max concurrent ViaggiaTreno requests |
 | `MAJORS_ONLY` | `true` | Poll only `is_major` stations; `false` sweeps all seeded stations |
+| `STOP_STATS_RETENTION_DAYS` | `7` | Hot window for per-stop `daily_stop_stats`; read by the poller and the web app (keep in sync) |
 
 Web lookup order: `apps/web/.env`, then repo-root `.env`, then launcher CWD
 (`src/server/db.ts`). Poller: `services/poller/.env`, then repo-root `.env`.
@@ -148,6 +149,13 @@ JavaScript — 15–23 s per request, and occasionally the stream dropped. They 
 `provvedimento` / `oraUltimoRilevamento` changed, so the hot 40s cadence stays
 cheap and static schedule data is never churned. `204` (cancelled) responses are
 skipped, not errors.
+
+**Bounded detail, forever summaries.** Per-stop rows (`daily_stop_stats`) are a
+30-day hot window; `daily_station_stats` keeps one row per station-day forever.
+Station totals, series and the worst-run card read the detail table inside the
+window and the station-day rollup outside it, so storage stops growing with
+traffic while the "all time" numbers survive. Pruned-train history keeps its
+mean-delay figure via `daily_train_stats.avg_stop_delay`.
 
 **Push, don't poll (in the browser).** The client subscribes to a single SSE
 endpoint; the server diffs against the last snapshot and pushes only changes

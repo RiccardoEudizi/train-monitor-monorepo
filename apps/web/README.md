@@ -51,7 +51,7 @@ DB client: `@neondatabase/serverless` HTTP driver (`drizzle-orm/neon-http`, see 
 
 ## Poller contract
 
-Live data is written by the Go poller (`../../services/poller`): `stations`, `train_runs` (30-day window), `stops`, `daily_stop_stats` (per-stop rollup, kept forever), `daily_train_stats` (per-run rollup, kept forever), `info_news(kind=ticker|news|lavori|stats, payload=jsonb)`. No poller = degraded mode (below). Seed target list: `src/lib/stations-seed.ts` (85 Tier-1 majors).
+Live data is written by the Go poller (`../../services/poller`): `stations`, `train_runs` (30-day window), `stops`, `daily_stop_stats` (per-stop rollup, 30-day window), `daily_station_stats` (station-day rollup, kept forever), `daily_train_stats` (per-run rollup, kept forever), `info_news(kind=ticker|news|lavori|stats, payload=jsonb)`. No poller = degraded mode (below). Seed target list: `src/lib/stations-seed.ts` (85 Tier-1 majors).
 
 ## Architecture
 
@@ -76,7 +76,7 @@ Also: `GET /api/stations?q=` (q>=2 chars), `GET /api/stats?scope=overview&period
 
 ## Stats model
 
-Aggregates run over `train_runs` keyed by `(numero, origine_code, data_partenza)`: `final` = destination arrival delay, `max` = worst en-route, `recupero = max - final`. `scope=station` reads the `daily_stop_stats` rollup instead. Train/global `total`/`all` reads the `daily_train_stats` per-run rollup (kept forever, region attribution frozen at rollup time); bounded periods read live `train_runs`. Overview attributes each run once to its last-relevamento region (`src/lib/regions.ts`), ranks by cumulative delay, threshold `>0'`. See `src/routes/api/stats.ts`, `src/server/data.ts`.
+Aggregates run over `train_runs` keyed by `(numero, origine_code, data_partenza)`: `final` = destination arrival delay, `max` = worst en-route, `recupero = max - final`. `scope=station` uses `daily_stop_stats` inside the `STOP_STATS_RETENTION_DAYS` window (exact p95 and per-stop detail) and `daily_station_stats` beyond it (all-time totals, series, worst run; p95 is a runs-weighted mean of daily p95s). Train/global `total`/`all` reads the `daily_train_stats` per-run rollup (kept forever, region attribution frozen at rollup time); bounded periods read live `train_runs`. Pruned-train mean delay comes from `daily_train_stats.avg_stop_delay`/`stops_count`. Overview attributes each run once to its last-relevamento region (`src/lib/regions.ts`), ranks by cumulative delay, threshold `>0'`. See `src/routes/api/stats.ts`, `src/server/data.ts`.
 
 ## Degraded mode (no DB)
 

@@ -33,19 +33,20 @@ func main() {
 	}
 
 	cfg := ingest.Config{
-		ActiveInterval:    activeInterval(),
-		DiscoveryInterval: time.Duration(env.Int("DISCOVERY_INTERVAL_SECONDS", 300)) * time.Second,
-		RollupInterval:    time.Duration(env.Int("ROLLUP_INTERVAL_SECONDS", 600)) * time.Second,
-		StatsInterval:     time.Duration(env.Int("STATS_INTERVAL_SECONDS", 300)) * time.Second,
-		TickerInterval:    time.Duration(env.Int("TICKER_INTERVAL_SECONDS", 900)) * time.Second,
-		Workers:           env.Int("WORKERS", 25),
-		MajorsOnly:        env.Bool("MAJORS_ONLY", true),
-		PreDeparture:      time.Duration(env.Int("PRE_DEPARTURE_MINUTES", 30)) * time.Minute,
-		PostArrivalGrace:  time.Duration(env.Int("POST_ARRIVAL_GRACE_MINUTES", 5)) * time.Minute,
+		ActiveInterval:         activeInterval(),
+		DiscoveryInterval:      time.Duration(env.Int("DISCOVERY_INTERVAL_SECONDS", 300)) * time.Second,
+		RollupInterval:         time.Duration(env.Int("ROLLUP_INTERVAL_SECONDS", 600)) * time.Second,
+		StatsInterval:          time.Duration(env.Int("STATS_INTERVAL_SECONDS", 300)) * time.Second,
+		TickerInterval:         time.Duration(env.Int("TICKER_INTERVAL_SECONDS", 900)) * time.Second,
+		Workers:                env.Int("WORKERS", 25),
+		MajorsOnly:             env.Bool("MAJORS_ONLY", true),
+		PreDeparture:           time.Duration(env.Int("PRE_DEPARTURE_MINUTES", 30)) * time.Minute,
+		PostArrivalGrace:       time.Duration(env.Int("POST_ARRIVAL_GRACE_MINUTES", 5)) * time.Minute,
+		StopStatsRetentionDays: env.Int("STOP_STATS_RETENTION_DAYS", 7),
 	}
-	log.Printf("poller starting: active=%s discovery=%s rollup=%s stats=%s ticker=%s workers=%d majorsOnly=%v pre=%s grace=%s",
+	log.Printf("poller starting: active=%s discovery=%s rollup=%s stats=%s ticker=%s workers=%d majorsOnly=%v pre=%s grace=%s cleanupStops=%dd",
 		cfg.ActiveInterval, cfg.DiscoveryInterval, cfg.RollupInterval, cfg.StatsInterval, cfg.TickerInterval,
-		cfg.Workers, cfg.MajorsOnly, cfg.PreDeparture, cfg.PostArrivalGrace)
+		cfg.Workers, cfg.MajorsOnly, cfg.PreDeparture, cfg.PostArrivalGrace, cfg.StopStatsRetentionDays)
 	ingest.Loop(ctx, pool, vt.NewClient(), cfg)
 }
 

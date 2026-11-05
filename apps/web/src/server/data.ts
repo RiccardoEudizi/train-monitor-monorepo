@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, ilike, inArray, or, sql } from "drizzle-orm";
 import {
+  dailyStationStats,
   dailyStopStats,
   dailyTrainStats,
   infoNews,
@@ -325,34 +326,44 @@ export async function fetchTrain(
       delaysByRun.set(s.runId, arr);
     }
   }
-  // Pruned runs have no stops rows: approximate the summary from the
-  // per-stop rollup (mean of station finals + stop count), one query.
-  // Same train number ⇒ single numero filter + date list.
+  // Pruned runs have no stops rows: use the per-run stop summary stored in
+  // the forever rollup (`avg_stop_delay` * `stops_count`). Rows are weighted,
+  // so multiple origine_code rows for the same date+numero stay consistent
+  // with the old per-stop scan. Best-effort: DBs without migration 010 fall
+  // back to `lastDelay`.
   const coldDates = [
     ...new Set(capped.filter((m) => !m.hot).map((m) => m.dataPartenza)),
   ];
   const coldAvg = new Map<string, { avg: number; n: number }>();
   if (coldDates.length > 0) {
-    const avgRows = await database
-      .select({
-        date: dailyStopStats.runDate,
-        avg: sql<number>`avg(${dailyStopStats.delayArrFinal})`,
-        n: sql<number>`count(*)`,
-      })
-      .from(dailyStopStats)
-      .where(
-        and(
-          eq(dailyStopStats.numero, n),
-          inArray(dailyStopStats.runDate, coldDates),
-        ),
-      )
-      .groupBy(dailyStopStats.runDate);
-    for (const r of avgRows) {
-      const v = Number(r.avg);
-      coldAvg.set(r.date, {
-        avg: Number.isFinite(v) ? Math.round(v * 10) / 10 : 0,
-        n: Number(r.n) || 0,
-      });
+    try {
+      const avgRows = await database
+        .select({
+          date: dailyTrainStats.runDate,
+          sum: sql<number>`sum(${dailyTrainStats.avgStopDelay} * ${dailyTrainStats.stopsCount})`,
+          stops: sql<number>`sum(${dailyTrainStats.stopsCount})`,
+          maxStops: sql<number>`max(${dailyTrainStats.stopsCount})`,
+        })
+        .from(dailyTrainStats)
+        .where(
+          and(
+            eq(dailyTrainStats.numero, n),
+            inArray(dailyTrainStats.runDate, coldDates),
+          ),
+        )
+        .groupBy(dailyTrainStats.runDate);
+      for (const r of avgRows) {
+        const stops = Number(r.stops) || 0;
+        const sum = Number(r.sum) || 0;
+        coldAvg.set(r.date, {
+          avg: stops ? Math.round((sum / stops) * 10) / 10 : 0,
+          // max() avoids double counting when old rows were backfilled from
+          // the per-(date, numero) rollup into several origine_code rows.
+          n: Number(r.maxStops) || 0,
+        });
+      }
+    } catch (e) {
+      logError("daily_train_stats stop summary read failed", e);
     }
   }
   const runSummaries = capped.map((r) => {
@@ -577,6 +588,18 @@ export async function fetchStats(
   }
 
   if (scope === "station" && id) {
+    // All-time (or beyond the per-stop retention window) reads the forever
+    // station-day rollup instead of the pruned detail table.
+    if (sinceDate == null || sinceDate < stopStatsCutoff()) {
+      try {
+        return await fetchStationStatsFromDaily(database, id, sinceDate, period);
+      } catch (e) {
+        // Pre-010 deploy (table missing) or a bad row: fall back to the
+        // per-stop path so the page still renders.
+        logError("daily_station_stats read failed, using per-stop rows", e);
+      }
+    }
+
     const rows = sinceDate
       ? await database
           .select()
@@ -605,134 +628,22 @@ export async function fetchStats(
       byDay.set(r.runDate, d);
     }
     const maxFinal = maxValue(maxes);
-    let worstTrain: PeriodStats["worstTrain"] = null;
-    if (rows.length > 0) {
-      const worst = [...rows]
-        .filter((r) => (r.delayMax ?? 0) === maxFinal)
-        .sort(
-          (a, b) =>
-            b.runDate.localeCompare(a.runDate) ||
-            (b.delayArrFinal ?? 0) - (a.delayArrFinal ?? 0),
-        )[0];
-      if (worst) {
-        const worstDelay = worst.delayMax ?? 0;
-        try {
-          const runRows = await database
-            .select()
-            .from(trainRuns)
-            .where(
-              and(
-                eq(trainRuns.numero, worst.numero),
-                eq(trainRuns.dataPartenza, worst.runDate),
-              ),
-            )
-            .limit(5);
-          let run = runRows[0];
-          let stopRow = null;
-          if (runRows.length > 0) {
-            const runIds = runRows.map((r) => r.id);
-            const stopRows = await database
-              .select()
-              .from(stops)
-              .where(
-                and(
-                  inArray(stops.runId, runIds),
-                  eq(stops.stationCode, id),
-                ),
-              );
-            const match = stopRows[0];
-            if (match) {
-              stopRow = match;
-              run = runRows.find((r) => r.id === match.runId) ?? run;
-            } else {
-              const [single] = await database
-                .select()
-                .from(stops)
-                .where(
-                  and(
-                    eq(stops.runId, run.id),
-                    eq(stops.stationCode, id),
-                  ),
-                )
-                .limit(1);
-              stopRow = single ?? null;
-            }
-          }
-          if (run) {
-            const isOrigin = stopRow?.tipoFermata === "P";
-            const scheduled =
-              (isOrigin ? stopRow?.programmataDep : stopRow?.programmataArr)?.toISOString() ??
-              run.orarioPartenza?.toISOString() ??
-              null;
-            const expected =
-              (isOrigin ? stopRow?.actualDep : stopRow?.actualArr)?.toISOString() ??
-              scheduled;
-            worstTrain = {
-              runId: run.id,
-              numero: run.numero,
-              categoria: run.categoria ?? "",
-              origine: run.origine ?? "",
-              destinazione: run.destinazione ?? "",
-              dataPartenza: run.dataPartenza,
-              scheduled,
-              expected,
-              delay: worstDelay,
-              binarioProg: stopRow?.binarioProg ?? null,
-              binarioReal: stopRow?.binarioReal ?? null,
-              stato: statoFor(worstDelay, run.provvedimento ?? (worst.cancelled ? 1 : 0)),
-              temporalStatus: "ended",
-              orarioPartenza: run.orarioPartenza?.toISOString() ?? null,
-              orarioArrivo: run.orarioArrivo?.toISOString() ?? null,
-              lastRilevamento: run.lastRilevamentoAt?.toISOString() ?? null,
-              lastRilevamentoStazione: run.lastRilevamentoStazione,
-              runDate: worst.runDate,
-            };
-          } else {
-            worstTrain = {
-              runId: null,
-              numero: worst.numero,
-              categoria: "",
-              origine: "",
-              destinazione: "",
-              dataPartenza: worst.runDate,
-              scheduled: null,
-              expected: null,
-              delay: worstDelay,
-              binarioProg: null,
-              binarioReal: null,
-              stato: statoFor(worstDelay, worst.cancelled ? 1 : 0),
-              temporalStatus: "ended",
-              orarioPartenza: null,
-              orarioArrivo: null,
-              lastRilevamento: null,
-              lastRilevamentoStazione: null,
-              runDate: worst.runDate,
-            };
-          }
-        } catch {
-          worstTrain = {
-            runId: null,
-            numero: worst.numero,
-            categoria: "",
-            origine: "",
-            destinazione: "",
-            dataPartenza: worst.runDate,
-            scheduled: null,
-            expected: null,
-            delay: worstDelay,
-            binarioProg: null,
-            binarioReal: null,
-            stato: statoFor(worstDelay, worst.cancelled ? 1 : 0),
-            temporalStatus: "ended",
-            orarioPartenza: null,
-            orarioArrivo: null,
-            lastRilevamento: null,
-            lastRilevamentoStazione: null,
-            runDate: worst.runDate,
-          };
-        }
-      }
-    }
+    const worst = [...rows]
+      .filter((r) => (r.delayMax ?? 0) === maxFinal)
+      .sort(
+        (a, b) =>
+          b.runDate.localeCompare(a.runDate) ||
+          (b.delayArrFinal ?? 0) - (a.delayArrFinal ?? 0),
+      )[0];
+    const worstTrain = worst
+      ? await stationWorstTrain(database, id, {
+          numero: worst.numero,
+          runDate: worst.runDate,
+          delay: maxFinal,
+          cancelled: worst.cancelled,
+        })
+      : null;
+
     return {
       runs: rows.length,
       avgFinal: avg(finals),
@@ -843,6 +754,201 @@ export async function fetchStats(
     delayedRate: rate(delayedCount, rows.length),
     totalDelay,
     series: toSeries(byDay),
+    dbConfigured: true,
+    period,
+  };
+}
+
+type Database = NonNullable<ReturnType<typeof db>>;
+
+/** Keep in sync with the poller's STOP_STATS_RETENTION_DAYS. */
+const STOP_STATS_RETENTION_DAYS = Math.max(
+  1,
+  Number(process.env.STOP_STATS_RETENTION_DAYS) || 7,
+);
+
+/** Oldest day that still has per-stop rows in `daily_stop_stats`. */
+function stopStatsCutoff(now = Date.now()): string {
+  return new Date(now - STOP_STATS_RETENTION_DAYS * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+}
+
+/**
+ * Card for the worst stop of a station in a period. The run may have been
+ * pruned (rollup-only), in which case the summary card is returned.
+ */
+async function stationWorstTrain(
+  database: Database,
+  stationCode: string,
+  worst: { numero: string; runDate: string; delay: number; cancelled: boolean },
+): Promise<PeriodStats["worstTrain"]> {
+  try {
+    const runRows = await database
+      .select()
+      .from(trainRuns)
+      .where(
+        and(
+          eq(trainRuns.numero, worst.numero),
+          eq(trainRuns.dataPartenza, worst.runDate),
+        ),
+      )
+      .limit(5);
+    let run = runRows[0];
+    let stopRow = null;
+    if (runRows.length > 0) {
+      const runIds = runRows.map((r) => r.id);
+      const stopRows = await database
+        .select()
+        .from(stops)
+        .where(and(inArray(stops.runId, runIds), eq(stops.stationCode, stationCode)));
+      const match = stopRows[0];
+      if (match) {
+        stopRow = match;
+        run = runRows.find((r) => r.id === match.runId) ?? run;
+      } else {
+        const [single] = await database
+          .select()
+          .from(stops)
+          .where(and(eq(stops.runId, run.id), eq(stops.stationCode, stationCode)))
+          .limit(1);
+        stopRow = single ?? null;
+      }
+    }
+    if (run) {
+      const isOrigin = stopRow?.tipoFermata === "P";
+      const scheduled =
+        (isOrigin ? stopRow?.programmataDep : stopRow?.programmataArr)?.toISOString() ??
+        run.orarioPartenza?.toISOString() ??
+        null;
+      const expected =
+        (isOrigin ? stopRow?.actualDep : stopRow?.actualArr)?.toISOString() ??
+        scheduled;
+      return {
+        runId: run.id,
+        numero: run.numero,
+        categoria: run.categoria ?? "",
+        origine: run.origine ?? "",
+        destinazione: run.destinazione ?? "",
+        dataPartenza: run.dataPartenza,
+        scheduled,
+        expected,
+        delay: worst.delay,
+        binarioProg: stopRow?.binarioProg ?? null,
+        binarioReal: stopRow?.binarioReal ?? null,
+        stato: statoFor(worst.delay, run.provvedimento ?? (worst.cancelled ? 1 : 0)),
+        temporalStatus: "ended",
+        orarioPartenza: run.orarioPartenza?.toISOString() ?? null,
+        orarioArrivo: run.orarioArrivo?.toISOString() ?? null,
+        lastRilevamento: run.lastRilevamentoAt?.toISOString() ?? null,
+        lastRilevamentoStazione: run.lastRilevamentoStazione,
+        runDate: worst.runDate,
+      };
+    }
+  } catch {
+    // fall through to the summary card
+  }
+  return {
+    runId: null,
+    numero: worst.numero,
+    categoria: "",
+    origine: "",
+    destinazione: "",
+    dataPartenza: worst.runDate,
+    scheduled: null,
+    expected: null,
+    delay: worst.delay,
+    binarioProg: null,
+    binarioReal: null,
+    stato: statoFor(worst.delay, worst.cancelled ? 1 : 0),
+    temporalStatus: "ended",
+    orarioPartenza: null,
+    orarioArrivo: null,
+    lastRilevamento: null,
+    lastRilevamentoStazione: null,
+    runDate: worst.runDate,
+  };
+}
+
+/**
+ * Station totals/series from the forever `daily_station_stats` rollup.
+ * `p95Final` is a runs-weighted mean of per-day p95s (exact for one day);
+ * station pages request 30d, which uses the exact per-stop path instead.
+ */
+async function fetchStationStatsFromDaily(
+  database: Database,
+  id: string,
+  sinceDate: string | null,
+  period: string,
+): Promise<PeriodStats & { dbConfigured: boolean; period: string }> {
+  const rows = await database
+    .select()
+    .from(dailyStationStats)
+    .where(
+      and(
+        eq(dailyStationStats.stationCode, id),
+        sinceDate ? gte(dailyStationStats.runDate, sinceDate) : undefined,
+      ),
+    );
+  rows.sort((a, b) => a.runDate.localeCompare(b.runDate));
+
+  const runs = rows.reduce((n, r) => n + (r.runs ?? 0), 0);
+  const sumFinal = rows.reduce((n, r) => n + (r.sumFinal ?? 0), 0);
+  const cancelled = rows.reduce((n, r) => n + (r.cancelled ?? 0), 0);
+  const delayedCount = rows.reduce((n, r) => n + (r.delayed ?? 0), 0);
+  const maxFinal = rows.reduce((n, r) => Math.max(n, r.maxDelay ?? 0), 0);
+  const p95Final = runs
+    ? Math.round(
+        rows.reduce((n, r) => n + (r.p95Final ?? 0) * (r.runs ?? 0), 0) / runs,
+      )
+    : 0;
+
+  let worst: (typeof rows)[number] | undefined;
+  for (const r of rows) {
+    if (!worst) {
+      worst = r;
+      continue;
+    }
+    const delay = r.worstDelay ?? 0;
+    const worstDelay = worst.worstDelay ?? 0;
+    if (
+      delay > worstDelay ||
+      (delay === worstDelay &&
+        (r.runDate > worst.runDate ||
+          (r.runDate === worst.runDate &&
+            (r.worstFinal ?? 0) > (worst.worstFinal ?? 0))))
+    ) {
+      worst = r;
+    }
+  }
+  const worstTrain =
+    worst?.worstNumero != null
+      ? await stationWorstTrain(database, id, {
+          numero: worst.worstNumero,
+          runDate: worst.runDate,
+          delay: worst.worstDelay ?? 0,
+          cancelled: worst.worstCancelled ?? false,
+        })
+      : null;
+
+  return {
+    runs,
+    avgFinal: runs ? Math.round((sumFinal / runs) * 10) / 10 : 0,
+    p95Final,
+    maxFinal,
+    avgMaxEnroute: 0,
+    avgRecupero: 0,
+    cancellRate: rate(cancelled, runs),
+    delayedCount,
+    delayedRate: rate(delayedCount, runs),
+    totalDelay: sumFinal,
+    worstTrain,
+    series: rows.map((r) => ({
+      date: r.runDate,
+      avgFinal: r.runs ? Math.round((r.sumFinal / r.runs) * 10) / 10 : 0,
+      maxFinal: r.maxDelay ?? 0,
+      runs: r.runs ?? 0,
+    })),
     dbConfigured: true,
     period,
   };

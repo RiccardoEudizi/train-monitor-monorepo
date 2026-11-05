@@ -36,10 +36,14 @@ type Config struct {
 	// PostArrivalGrace keeps a run active just past arrival (shifted by
 	// delay) so the final snapshot is written (default 5m).
 	PostArrivalGrace time.Duration
+	// StopStatsRetentionDays bounds daily_stop_stats (per-stop detail).
+	// Station totals live in daily_station_stats and are never pruned.
+	StopStatsRetentionDays int
 }
 
 // runRetentionDays bounds train_runs/stops (current truth) to a hot window.
-// Station history beyond this lives in daily_stop_stats (kept forever).
+// Station history beyond this lives in daily_stop_stats (per-stop detail,
+// bounded by StopStatsRetentionDays) and daily_station_stats (kept forever).
 const runRetentionDays = 30
 
 // Cycle runs one full legacy discovery + detail pass. Kept for one-shot
@@ -63,8 +67,14 @@ func Cycle(ctx context.Context, pool *pgxpool.Pool, client *vt.Client, cfg Confi
 	if err := rollupTrainToday(ctx, pool); err != nil {
 		log.Printf("rollup-train: %v", err)
 	}
+	if err := rollupStationToday(ctx, pool); err != nil {
+		log.Printf("rollup-station: %v", err)
+	}
 	if err := cleanupOldRuns(ctx, pool); err != nil {
 		log.Printf("cleanup: %v", err)
+	}
+	if err := cleanupOldDailyStops(ctx, pool, cfg.StopStatsRetentionDays); err != nil {
+		log.Printf("cleanup-stops: %v", err)
 	}
 
 	publishMeta(ctx, pool, client)
@@ -98,8 +108,14 @@ func Loop(ctx context.Context, pool *pgxpool.Pool, client *vt.Client, cfg Config
 		if err := rollupTrainToday(ctx, pool); err != nil {
 			log.Printf("rollup-train: %v", err)
 		}
+		if err := rollupStationToday(ctx, pool); err != nil {
+			log.Printf("rollup-station: %v", err)
+		}
 		if err := cleanupOldRuns(ctx, pool); err != nil {
 			log.Printf("cleanup: %v", err)
+		}
+		if err := cleanupOldDailyStops(ctx, pool, cfg.StopStatsRetentionDays); err != nil {
+			log.Printf("cleanup-stops: %v", err)
 		}
 		publishStats(ctx, pool, client)
 		publishTicker(ctx, pool, client)
@@ -166,6 +182,9 @@ func slowLoop(ctx context.Context, pool *pgxpool.Pool, client *vt.Client, cfg Co
 			if err := rollupTrainToday(ctx, pool); err != nil {
 				log.Printf("rollup-train: %v", err)
 			}
+			if err := rollupStationToday(ctx, pool); err != nil {
+				log.Printf("rollup-station: %v", err)
+			}
 		case <-statsT.C:
 			publishStats(ctx, pool, client)
 		case <-tickerT.C:
@@ -173,6 +192,9 @@ func slowLoop(ctx context.Context, pool *pgxpool.Pool, client *vt.Client, cfg Co
 		case <-cleanupT.C:
 			if err := cleanupOldRuns(ctx, pool); err != nil {
 				log.Printf("cleanup: %v", err)
+			}
+			if err := cleanupOldDailyStops(ctx, pool, cfg.StopStatsRetentionDays); err != nil {
+				log.Printf("cleanup-stops: %v", err)
 			}
 		}
 	}
