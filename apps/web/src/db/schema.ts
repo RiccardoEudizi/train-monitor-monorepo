@@ -111,13 +111,15 @@ export const stops = pgTable(
 
 /**
  * Rolled-up daily per-stop stats for the hot window only (pruned by the
- * poller after STOP_STATS_RETENTION_DAYS, default 30). Writes converge to
+ * poller after STOP_STATS_RETENTION_DAYS, default 7). Writes converge to
  * end-of-day truth. All-time station totals live in `daily_station_stats`.
+ * No primary key on `id` (migration 011): the natural key is the unique
+ * index below, which is also the ON CONFLICT target.
  */
 export const dailyStopStats = pgTable(
   "daily_stop_stats",
   {
-    id: serial("id").primaryKey(),
+    id: serial("id"),
     runDate: date("run_date").notNull(),
     numero: text("numero").notNull(),
     stationCode: text("station_code").notNull(),

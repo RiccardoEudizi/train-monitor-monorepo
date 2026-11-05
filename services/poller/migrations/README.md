@@ -32,6 +32,11 @@ Station totals and series only need one row per station-day, so 010:
 
 **Order matters:**
 
+0. On a project at the 1 GB Neon limit, free index headroom first: apply
+   [`011_drop_daily_stop_pkey.sql`](011_drop_daily_stop_pkey.sql) and drop
+   `daily_stats_numero_idx`. Otherwise the 010 backfill can fail with
+   `project size limit (1024 MB) has been exceeded` — creating the new table
+   and its indexes needs ~20 MB, and the project has less than that free.
 1. Apply `010_daily_station_stats.sql` (backfill happens here).
 2. Deploy the poller that writes `daily_station_stats` and prunes
    `daily_stop_stats` (`STOP_STATS_RETENTION_DAYS`, default 7). Deploying the
@@ -54,9 +59,32 @@ If `VACUUM FULL` fails for lack of space, delete in day-sized batches from the
 Neon SQL editor, run `VACUUM daily_stop_stats` between batches, and retry
 `VACUUM FULL` once enough is free.
 
+If the poller has been off longer than the retention window, almost every row
+is already outside it. Copy the few kept rows, `TRUNCATE`, and re-insert them:
+that avoids a multi-million-row `DELETE` (and its WAL), and `TRUNCATE` already
+returns the files, so no `VACUUM FULL` is needed:
+
+```sql
+BEGIN;
+CREATE TEMP TABLE keep_daily_stops AS
+  SELECT * FROM daily_stop_stats WHERE run_date >= CURRENT_DATE - 7;
+TRUNCATE daily_stop_stats;
+INSERT INTO daily_stop_stats SELECT * FROM keep_daily_stops;
+COMMIT;
+```
+
 The web app reads the same retention window (`STOP_STATS_RETENTION_DAYS`) to
 decide between exact per-stop stats and the station-day rollup; keep the two
 env values in sync.
+
+## 011 — dropping the unused `daily_stop_stats` pkey
+
+The serial `id` is never read by the app; the natural key
+`(run_date, numero, station_code)` is enforced by the unique index that
+`ON CONFLICT` already targets. The surrogate pkey index cost ~124 MB at 30
+days (~36 MB at the 7-day window), and dropping it is what gives the 010
+backfill room on a 1 GB Neon project. Safe to re-run; the `id` column stays
+because the web still selects it.
 
 ## Archive
 
